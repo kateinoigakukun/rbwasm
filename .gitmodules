@@ -1,0 +1,3 @@
+[submodule "wasi-vfs"]
+	path = wasi-vfs
+	url = git@github.com:kateinoigakukun/wasi-vfs.git
