@@ -5,7 +5,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use siphasher::sip128::SipHasher13;
 
 pub struct Workspace {
@@ -40,9 +40,9 @@ pub enum BuildSource {
 }
 
 pub struct Toolchain {
-    wasm_opt: PathBuf,
-    wasi_sdk: PathBuf,
-    rb_wasm_support: PathBuf,
+    pub wasm_opt: PathBuf,
+    pub wasi_sdk: PathBuf,
+    pub rb_wasm_support: PathBuf,
 }
 
 pub fn install_build_toolchain(workspace: &Workspace) -> anyhow::Result<Toolchain> {
@@ -126,8 +126,12 @@ fn configure_cruby(
     build_dir: &Path,
     install_dir: &Path,
 ) -> anyhow::Result<()> {
+    log::info!("configure cruby");
     let wasi_sdk = toolchain.wasi_sdk.as_path().to_string_lossy();
     let rb_wasm_support = toolchain.rb_wasm_support.as_path().to_string_lossy();
+
+    std::fs::create_dir_all(build_dir).with_context(|| format!("failed to create build dir"))?;
+
     let default_enabled_extensions = [
         "bigdecimal",
         "cgi/escape",
@@ -181,63 +185,85 @@ fn configure_cruby(
         String::from("-D_WASI_EMULATED_PROCESS_CLOCKS"),
         String::from("-DRB_WASM_SUPPORT_EMULATE_SETJMP"),
     ];
-    let mut configure = Command::new(configure);
-    configure.current_dir(&build_dir);
-    configure.args([
+    let mut configure_cmd = Command::new(configure.as_path());
+    configure_cmd.current_dir(&build_dir);
+    configure_cmd.args([
         "--host=wasm32-unknown-wasi",
         "--disable-install-doc",
         "--disable-jit-support",
         "--with-coroutine=asyncify",
         "--with-static-linked-ext",
     ]);
-    configure.arg(format!("--prefix={}", install_dir.to_string_lossy()));
-    configure.arg(format!(
+    configure_cmd.arg(format!("--prefix={}", install_dir.to_string_lossy()));
+    configure_cmd.arg(format!(
         "--with-ext={}",
         default_enabled_extensions.join(",")
     ));
-    configure.arg("XLDFLAGS=-Xlinker --relocatable");
-    configure.arg(format!("LDFLAGS={}", ldflags.join(" ")));
-    configure.arg(format!("CFLAGS={}", cflags.join(" ")));
-    configure.arg(format!("CC={}/bin/clang", wasi_sdk));
-    configure.arg(format!("LD={}/bin/clang", wasi_sdk));
-    configure.arg(format!("AR={}/bin/llvm-ar", wasi_sdk));
-    configure.arg(format!("RANLIB={}/bin/llvm-ranlib", wasi_sdk));
+    configure_cmd.arg("XLDFLAGS=-Xlinker --relocatable");
+    configure_cmd.arg(format!("LDFLAGS={}", ldflags.join(" ")));
+    configure_cmd.arg(format!("CFLAGS={}", cflags.join(" ")));
+    configure_cmd.arg(format!("CC={}/bin/clang", wasi_sdk));
+    configure_cmd.arg(format!("LD={}/bin/clang", wasi_sdk));
+    configure_cmd.arg(format!("AR={}/bin/llvm-ar", wasi_sdk));
+    configure_cmd.arg(format!("RANLIB={}/bin/llvm-ranlib", wasi_sdk));
 
-    log::debug!("configure cruby: {:?}", configure);
-    let status = configure.status()?;
+    log::debug!("configure cruby: {:?}", configure_cmd);
+    let status = configure_cmd
+        .status()
+        .with_context(|| format!("failed to spawn {:?}", configure))?;
     if !status.success() {
         bail!("configuration of cruby failed")
     }
     Ok(())
 }
 
+pub struct BuildResult {
+    pub install_dir: PathBuf,
+    pub cached: bool,
+}
+
+/// Build CRuby from a given source and returns installed path
 pub fn build_cruby(
     workspace: &Workspace,
     toolchain: &Toolchain,
     source: &BuildSource,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<BuildResult> {
     let hashed_name = source.hashed_srcname("ruby");
     let build_dir = workspace.build_dir().join(&hashed_name);
     let install_dir = workspace.cache_dir().join(&hashed_name);
+    if install_dir.exists() {
+        log::info!("cruby build cache found. skip building again");
+        return Ok(BuildResult {
+            install_dir,
+            cached: true,
+        });
+    }
 
     let src_dir = install_cruby_src(source, &build_dir)?;
     let autogen_sh = src_dir.join("autogen.sh");
-    let status = Command::new(autogen_sh.as_path()).status()?;
+    let status = Command::new(autogen_sh.as_path())
+        .status()
+        .with_context(|| format!("failed to spawn {:?}", autogen_sh))?;
     if !status.success() {
         bail!("{:?} failed", autogen_sh)
     }
 
-    configure_cruby(toolchain, src_dir, &build_dir, &install_dir)?;
+    configure_cruby(toolchain, src_dir, &build_dir, &install_dir)
+        .with_context(|| format!("configuration failed"))?;
 
     let status = Command::new("make")
         .current_dir(&build_dir)
         .arg("install")
         .arg(format!("-j{}", num_cpus::get()))
-        .status()?;
+        .status()
+        .with_context(|| format!("failed to spawn make"))?;
     if !status.success() {
         bail!("make of cruby failed")
     }
-    Ok(())
+    Ok(BuildResult {
+        install_dir,
+        cached: false,
+    })
 }
 
 fn extract_tarball<R: std::io::Read>(src: &mut R, dest: &Path) -> anyhow::Result<()> {

@@ -665,11 +665,16 @@ dependencies = [
  "log",
  "num_cpus",
  "openssl",
+ "rbwasm-test-support",
  "reqwest",
  "siphasher",
  "structopt",
  "which",
 ]
+
+[[package]]
+name = "rbwasm-test-support"
+version = "0.1.0"
 
 [[package]]
 name = "redox_syscall"

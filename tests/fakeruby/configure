@@ -1,0 +1,16 @@
+FAKERUBY_ROOT="$(cd "$(dirname $0)" && pwd)"
+
+while [ $# -ne 0 ]; do
+  case "$1" in
+    --prefix=*)
+        PREFIX="${1#*=}"
+  ;;
+    *)
+        # ignore other options
+  ;;
+  esac
+  shift
+done
+
+mkdir -p $PREFIX
+cp $FAKERUBY_ROOT/Makefile .

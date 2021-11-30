@@ -14,3 +14,7 @@ env_logger = "0.9"
 siphasher = "0.3"
 hex = "0.4"
 num_cpus = "1.13"
+
+[dev-dependencies]
+rbwasm-test-support = { path = "crates/rbwasm-test-support" }
+
