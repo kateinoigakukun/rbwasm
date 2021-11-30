@@ -87,6 +87,7 @@ impl BuildSource {
     }
 }
 
+/// Retrieve a CRuby source from BuildSource and returns source directory
 fn install_cruby_src<'a>(source: &'a BuildSource, build_dir: &'a Path) -> anyhow::Result<&'a Path> {
     match source {
         BuildSource::GitHub {
@@ -118,24 +119,15 @@ fn install_cruby_src<'a>(source: &'a BuildSource, build_dir: &'a Path) -> anyhow
         BuildSource::Dir { path } => return Ok(path),
     }
 }
-pub fn build_cruby(
-    workspace: &Workspace,
-    toolchain: &Toolchain,
-    source: &BuildSource,
-) -> anyhow::Result<()> {
-    let hashed_name = source.hashed_srcname("ruby");
-    let build_dir = workspace.build_dir().join(&hashed_name);
-    let install_dir = workspace.cache_dir().join(&hashed_name);
-    let src_dir = install_cruby_src(source, &build_dir)?;
-    let autogen_sh = src_dir.join("autogen.sh");
-    let status = Command::new(autogen_sh.as_path()).status()?;
-    if !status.success() {
-        bail!("{:?} failed", autogen_sh)
-    }
 
+fn configure_cruby(
+    toolchain: &Toolchain,
+    src_dir: &Path,
+    build_dir: &Path,
+    install_dir: &Path,
+) -> anyhow::Result<()> {
     let wasi_sdk = toolchain.wasi_sdk.as_path().to_string_lossy();
     let rb_wasm_support = toolchain.rb_wasm_support.as_path().to_string_lossy();
-    let configure = src_dir.join("configure").canonicalize()?;
     let default_enabled_extensions = [
         "bigdecimal",
         "cgi/escape",
@@ -167,15 +159,7 @@ pub fn build_cruby(
         "strscan",
         "monitor",
     ];
-    let configure_args = [
-        "--host=wasm32-unknown-wasi",
-        "--disable-install-doc",
-        "--disable-jit-support",
-        "--with-coroutine=asyncify",
-        "--with-static-linked-ext",
-    ];
-
-    let toolchain_args = ["XLDFLAGS=-Xlinker --relocatable"];
+    let configure = src_dir.join("configure").canonicalize()?;
     let ldflags = [
         format!("--sysroot={}/share/wasi-sysroot", wasi_sdk),
         format!("-L{}/share/wasi-sysroot/lib/wasm32-wasi", wasi_sdk),
@@ -199,20 +183,21 @@ pub fn build_cruby(
     ];
     let mut configure = Command::new(configure);
     configure.current_dir(&build_dir);
-    configure.args(configure_args);
-    configure.arg(format!(
-        "--prefix={}",
-        install_dir.as_path().to_string_lossy()
-    ));
+    configure.args([
+        "--host=wasm32-unknown-wasi",
+        "--disable-install-doc",
+        "--disable-jit-support",
+        "--with-coroutine=asyncify",
+        "--with-static-linked-ext",
+    ]);
+    configure.arg(format!("--prefix={}", install_dir.to_string_lossy()));
     configure.arg(format!(
         "--with-ext={}",
         default_enabled_extensions.join(",")
     ));
-    configure.args(toolchain_args);
-
+    configure.arg("XLDFLAGS=-Xlinker --relocatable");
     configure.arg(format!("LDFLAGS={}", ldflags.join(" ")));
     configure.arg(format!("CFLAGS={}", cflags.join(" ")));
-
     configure.arg(format!("CC={}/bin/clang", wasi_sdk));
     configure.arg(format!("LD={}/bin/clang", wasi_sdk));
     configure.arg(format!("AR={}/bin/llvm-ar", wasi_sdk));
@@ -223,6 +208,26 @@ pub fn build_cruby(
     if !status.success() {
         bail!("configuration of cruby failed")
     }
+    Ok(())
+}
+
+pub fn build_cruby(
+    workspace: &Workspace,
+    toolchain: &Toolchain,
+    source: &BuildSource,
+) -> anyhow::Result<()> {
+    let hashed_name = source.hashed_srcname("ruby");
+    let build_dir = workspace.build_dir().join(&hashed_name);
+    let install_dir = workspace.cache_dir().join(&hashed_name);
+
+    let src_dir = install_cruby_src(source, &build_dir)?;
+    let autogen_sh = src_dir.join("autogen.sh");
+    let status = Command::new(autogen_sh.as_path()).status()?;
+    if !status.success() {
+        bail!("{:?} failed", autogen_sh)
+    }
+
+    configure_cruby(toolchain, src_dir, &build_dir, &install_dir)?;
 
     let status = Command::new("make")
         .current_dir(&build_dir)

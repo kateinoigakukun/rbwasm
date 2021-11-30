@@ -27,6 +27,7 @@ fn init_workspace() -> TestWorkspace {
     let root_dir = PathBuf::from(std::env!("CARGO_TARGET_TMPDIR"));
 
     let work_dir = root_dir.join(id.to_string());
+    std::fs::remove_dir_all(&work_dir).unwrap();
     std::fs::create_dir_all(&work_dir.join(".rbwasm")).unwrap();
     std::env::set_current_dir(&work_dir).unwrap();
     TestWorkspace {
