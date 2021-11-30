@@ -663,6 +663,7 @@ dependencies = [
  "env_logger",
  "hex",
  "log",
+ "num_cpus",
  "openssl",
  "reqwest",
  "siphasher",

@@ -227,6 +227,7 @@ pub fn build_cruby(
     let status = Command::new("make")
         .current_dir(&build_dir)
         .arg("install")
+        .arg(format!("-j{}", num_cpus::get()))
         .status()?;
     if !status.success() {
         bail!("make of cruby failed")
