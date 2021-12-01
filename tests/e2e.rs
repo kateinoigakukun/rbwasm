@@ -1,12 +1,12 @@
-use std::path::PathBuf;
 use rbwasm::*;
 use rbwasm_test_support::init_workspace;
+use std::path::PathBuf;
 extern crate rbwasm_test_support;
 
 #[test]
 fn test_build_cruby() {
     let space = init_workspace!();
-    let workspace = Workspace::new(PathBuf::from(".rbwasm").canonicalize().unwrap());
+    let workspace = Workspace::new(PathBuf::from(".rbwasm").canonicalize().unwrap(), true);
     let toolchain = install_build_toolchain(&workspace).expect("failed toolchain install");
     let ruby_source = BuildSource::GitHub {
         owner: String::from("kateinoigakukun"),
