@@ -216,10 +216,12 @@ fn configure_cruby(
         String::from("-DRB_WASM_SUPPORT_EMULATE_SETJMP"),
     ];
     let mut configure_cmd = Command::new(configure.as_path());
-    configure_cmd
-        .current_dir(&build_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    configure_cmd.current_dir(&build_dir);
+
+    if !is_debugging() {
+        configure_cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    }
+
     configure_cmd.args([
         "--host=wasm32-unknown-wasi",
         "--disable-install-doc",
@@ -307,10 +309,12 @@ pub fn build_cruby(
             log::info!("setting PATH='{}'", new_path.to_string_lossy());
             make.current_dir(&build_dir)
                 .env("PATH", new_path)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
                 .arg("install")
                 .arg(format!("-j{}", num_cpus::get()));
+
+            if !is_debugging() {
+                make.stdout(Stdio::null()).stderr(Stdio::null());
+            }
             trace_command_exec(&make, "make install", Some(&build_dir));
             let status = make
                 .status()
@@ -464,7 +468,6 @@ fn relpath_for_display(path: &Path) -> &Path {
         path
     }
 }
-
 
 pub(crate) fn is_debugging() -> bool {
     std::env::var("RBWASM_DEBUG").is_ok()
