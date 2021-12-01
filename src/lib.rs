@@ -1,4 +1,6 @@
 mod github;
+pub mod toolchain;
+mod trace;
 use std::{
     fs::File,
     hash::{Hash, Hasher},
@@ -10,6 +12,9 @@ use std::{
 
 use anyhow::{bail, Context};
 use siphasher::sip128::SipHasher13;
+
+use crate::toolchain::Toolchain;
+use crate::trace::trace_command_exec;
 
 pub struct Workspace {
     dir: PathBuf,
@@ -88,44 +93,6 @@ pub enum BuildSource {
     Dir {
         path: PathBuf,
     },
-}
-
-pub struct Toolchain {
-    pub wasm_opt: PathBuf,
-    pub wasi_sdk: PathBuf,
-    pub rb_wasm_support: PathBuf,
-}
-
-pub fn install_build_toolchain(workspace: &Workspace) -> anyhow::Result<Toolchain> {
-    const WASI_SDK_RELEASE_TARBALL: &str = "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-14/wasi-sdk-14.0-macos.tar.gz";
-    const WASI_SDK_VERSION: &str = "14.0";
-    let wasi_sdk_dest = workspace
-        .downloads_dir()
-        .join(format!("wasi-sdk-{}", WASI_SDK_VERSION));
-    if !wasi_sdk_dest.exists() {
-        std::fs::create_dir_all(wasi_sdk_dest.as_path())?;
-        let mut tar_gz = reqwest::blocking::get(WASI_SDK_RELEASE_TARBALL)?.error_for_status()?;
-        extract_tarball(&mut tar_gz, &wasi_sdk_dest)?;
-    }
-
-    const RB_WASM_SUPPORT_RELEASE_TARBALL: &str = "https://github.com/kateinoigakukun/rb-wasm-support/releases/download/0.4.0/rb-wasm-support-wasm32-unknown-wasi.tar.gz";
-    const RB_WASM_SUPPORT_VERSION: &str = "0.4.0";
-    let rb_wasm_support_dest = workspace
-        .downloads_dir()
-        .join(format!("rb-wasm-support-{}", RB_WASM_SUPPORT_VERSION));
-
-    if !rb_wasm_support_dest.exists() {
-        std::fs::create_dir_all(rb_wasm_support_dest.as_path())?;
-        let mut tar_gz =
-            reqwest::blocking::get(RB_WASM_SUPPORT_RELEASE_TARBALL)?.error_for_status()?;
-        extract_tarball(&mut tar_gz, &rb_wasm_support_dest)?;
-    }
-
-    Ok(Toolchain {
-        wasm_opt: which::which("wasm-opt")?,
-        wasi_sdk: wasi_sdk_dest.canonicalize()?,
-        rb_wasm_support: rb_wasm_support_dest.canonicalize()?,
-    })
 }
 
 impl BuildSource {
@@ -258,7 +225,7 @@ fn configure_cruby(
     configure_cmd.arg(format!("AR={}/bin/llvm-ar", wasi_sdk));
     configure_cmd.arg(format!("RANLIB={}/bin/llvm-ranlib", wasi_sdk));
 
-    log::debug!("configure cruby: {:?}", configure_cmd);
+    trace::trace_command_exec(&configure_cmd, Some(&build_dir));
     let status = configure_cmd
         .status()
         .with_context(|| format!("failed to spawn {:?}", configure))?;
@@ -292,7 +259,10 @@ pub fn build_cruby(
 
     let src_dir = install_cruby_src(source, &build_dir)?;
     let autogen_sh = src_dir.join("autogen.sh");
-    let status = Command::new(autogen_sh.as_path())
+    let mut autogen_sh = Command::new(autogen_sh.as_path());
+    trace::trace_command_exec(&autogen_sh, None);
+
+    let status = autogen_sh
         .status()
         .with_context(|| format!("failed to spawn {:?}", autogen_sh))?;
     if !status.success() {
@@ -313,12 +283,14 @@ pub fn build_cruby(
             } else {
                 fake_path.as_os_str().to_os_string()
             };
-            log::debug!("setting PATH='{}'", new_path.to_string_lossy());
-            let status = Command::new("make")
-                .current_dir(&build_dir)
+            let mut make = Command::new("make");
+            log::info!("setting PATH='{}'", new_path.to_string_lossy());
+            trace_command_exec(&make, Some(&build_dir));
+            make.current_dir(&build_dir)
                 .env("PATH", new_path)
                 .arg("install")
-                .arg(format!("-j{}", num_cpus::get()))
+                .arg(format!("-j{}", num_cpus::get()));
+            let status = make
                 .status()
                 .with_context(|| format!("failed to spawn make"))?;
             Ok(status)
@@ -331,6 +303,77 @@ pub fn build_cruby(
         install_dir,
         cached: false,
     })
+}
+
+pub struct LinkerInput<'a> {
+    pub stack_size: usize,
+    pub fs_object: Option<&'a [u8]>
+}
+
+pub fn link_executable(
+    workspace: &Workspace,
+    toolchain: &Toolchain,
+    cruby: &BuildResult,
+    input: &LinkerInput,
+    output: &Path,
+) -> anyhow::Result<()> {
+    let wasm_ld = toolchain.wasi_sdk.join("bin/wasm-ld");
+    let mut link = Command::new(wasm_ld);
+    link.arg(cruby.install_dir.join("bin/ruby"));
+    link.args(["--stack-first", "-z"]);
+    link.arg(format!("stack-size={}", input.stack_size));
+    link.arg("-o");
+    link.arg(output);
+
+    fn link_inner(mut link: Command, workspace: &Workspace) -> anyhow::Result<ExitStatus> {
+        workspace.with_tempfile("libwasi_vfs.a", |libvfs, libvfs_path| {
+            libvfs.write_all(std::include_bytes!(std::concat!(
+                std::env!("OUT_DIR"),
+                "/wasi-vfs-target/wasm32-unknown-unknown/release/libwasi_vfs.a"
+            )))?;
+
+            link.arg(libvfs_path);
+            log::debug!("link single ruby binary: {:?}", link);
+            let status = link
+                .status()
+                .with_context(|| format!("failed to spawn linker"))?;
+            Ok(status)
+        })?
+    }
+
+    let status = if let Some(bytes) = input.fs_object {
+        let status = workspace.with_tempfile("fs.o", |fs_obj, fs_obj_path| {
+            fs_obj.write_all(&bytes)?;
+            link.arg(fs_obj_path);
+            link_inner(link, &workspace)
+        })?;
+        status?
+    } else {
+        link_inner(link, &workspace)?
+    };
+
+    if !status.success() {
+        bail!("link failed")
+    }
+    Ok(())
+}
+
+pub fn asyncify_executable(toolchain: &Toolchain, input: &Path, output: &Path) -> anyhow::Result<()> {
+    let mut wasm_opt = Command::new(&toolchain.wasm_opt);
+    wasm_opt.arg(&input);
+    wasm_opt.arg("--asyncify");
+    wasm_opt.arg("-O");
+    wasm_opt.arg("--pass-arg=asyncify-ignore-imports");
+    wasm_opt.arg("-o");
+    wasm_opt.arg(&output);
+    log::debug!("asyncify ruby binary: {:?}", wasm_opt);
+    let status = wasm_opt
+        .status()
+        .with_context(|| format!("failed to spawn wasm-opt"))?;
+    if !status.success() {
+        bail!("wasm-opt failed")
+    }
+    Ok(())
 }
 
 fn extract_tarball<R: std::io::Read>(src: &mut R, dest: &Path) -> anyhow::Result<()> {

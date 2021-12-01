@@ -7,7 +7,7 @@ extern crate rbwasm_test_support;
 fn test_build_cruby() {
     let space = init_workspace!();
     let workspace = Workspace::new(PathBuf::from(".rbwasm").canonicalize().unwrap(), true);
-    let toolchain = install_build_toolchain(&workspace).expect("failed toolchain install");
+    let toolchain = toolchain::install_build_toolchain(&workspace).expect("failed toolchain install");
     let ruby_source = BuildSource::GitHub {
         owner: String::from("kateinoigakukun"),
         repo: String::from("ruby"),

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use rbwasm::{build_cruby, BuildSource, Toolchain, Workspace};
+use rbwasm::{build_cruby, toolchain::Toolchain, BuildSource, Workspace};
 use rbwasm_test_support::init_workspace;
 
 fn fakeruby() -> PathBuf {
