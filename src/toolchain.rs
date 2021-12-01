@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{Workspace, extract_tarball};
+use crate::{Workspace, extract_tarball, ui_info};
 
 pub struct Toolchain {
     pub wasm_opt: PathBuf,
@@ -16,6 +16,7 @@ pub fn install_build_toolchain(workspace: &Workspace) -> anyhow::Result<Toolchai
         .downloads_dir()
         .join(format!("wasi-sdk-{}", WASI_SDK_VERSION));
     if !wasi_sdk_dest.exists() {
+        ui_info!("installing wasi-sdk {} into {:?}", WASI_SDK_VERSION, &wasi_sdk_dest);
         std::fs::create_dir_all(wasi_sdk_dest.as_path())?;
         let mut tar_gz = reqwest::blocking::get(WASI_SDK_RELEASE_TARBALL)?.error_for_status()?;
         extract_tarball(&mut tar_gz, &wasi_sdk_dest)?;
@@ -28,6 +29,7 @@ pub fn install_build_toolchain(workspace: &Workspace) -> anyhow::Result<Toolchai
         .join(format!("rb-wasm-support-{}", RB_WASM_SUPPORT_VERSION));
 
     if !rb_wasm_support_dest.exists() {
+        ui_info!("installing rb-wasm-support {} into {:?}", RB_WASM_SUPPORT_VERSION, &rb_wasm_support_dest);
         std::fs::create_dir_all(rb_wasm_support_dest.as_path())?;
         let mut tar_gz =
             reqwest::blocking::get(RB_WASM_SUPPORT_RELEASE_TARBALL)?.error_for_status()?;

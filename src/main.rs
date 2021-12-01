@@ -1,6 +1,6 @@
 use rbwasm::{
-    asyncify_executable, build_cruby, link_executable, toolchain, BuildSource, LinkerInput,
-    Workspace,
+    asyncify_executable, build_cruby, link_executable, mkfs, toolchain, BuildSource, LinkerInput,
+    MkfsInput, Workspace,
 };
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -48,11 +48,10 @@ fn main() -> anyhow::Result<()> {
     let cruby = build_cruby(&workspace, &toolchain, &ruby_source)?;
 
     let fs_object = if !opt.map_dirs.is_empty() {
-        log::info!("generating vfs image...");
-        let fs_c_src = wasi_vfs_mkfs::generate_c_source(&opt.map_dirs)?;
-        let clang = toolchain.wasi_sdk.join("bin/clang");
-        let fs_obj = wasi_vfs_mkfs::generate_obj(&fs_c_src, &clang.to_string_lossy())?;
-        Some(fs_obj)
+        let input = MkfsInput {
+            map_dirs: opt.map_dirs,
+        };
+        Some(mkfs(&toolchain, &input)?)
     } else {
         None
     };

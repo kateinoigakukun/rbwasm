@@ -116,6 +116,7 @@ fn install_cruby_src<'a>(source: &'a BuildSource, build_dir: &'a Path) -> anyhow
             if build_dir.exists() {
                 return Ok(build_dir);
             }
+            ui_info!("downloading CRuby source into {:?}", build_dir);
             std::fs::create_dir_all(build_dir)?;
             static APP_USER_AGENT: &str =
                 concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
@@ -386,6 +387,18 @@ pub fn asyncify_executable(
         bail!("wasm-opt failed")
     }
     Ok(())
+}
+
+pub struct MkfsInput {
+    pub map_dirs: Vec<(String, String)>,
+}
+
+pub fn mkfs(toolchain: &Toolchain, input: &MkfsInput) -> anyhow::Result<Vec<u8>> {
+    ui_info!("generating vfs image");
+    let fs_c_src = wasi_vfs_mkfs::generate_c_source(&input.map_dirs)?;
+    let clang = toolchain.wasi_sdk.join("bin/clang");
+    let object = wasi_vfs_mkfs::generate_obj(&fs_c_src, &clang.to_string_lossy())?;
+    Ok(object)
 }
 
 fn extract_tarball<R: std::io::Read>(src: &mut R, dest: &Path) -> anyhow::Result<()> {

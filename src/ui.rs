@@ -1,7 +1,8 @@
 use std::fmt;
 use std::{path::Path, process::Command};
 
-macro_rules! info {
+#[macro_export]
+macro_rules! ui_info {
     ( $ ( $ arg : tt ) * ) => ( $crate::ui::info_fmt ( format_args ! ( $ ( $ arg ) * ) ) )
 }
 
@@ -9,15 +10,15 @@ pub(crate) fn trace_command_exec(cmd: &Command, description: &str, cwd: Option<&
     let is_verbose = std::env::var("RBWASM_DEBUG").is_ok();
     if let Some(cwd) = cwd {
         if is_verbose {
-            info!("running {} in {:?}: {:?}", description, cmd, cwd);
+            ui_info!("running {} in {:?}: {:?}", description, cmd, cwd);
         } else {
-            info!("running {}", description);
+            ui_info!("running {}", description);
         }
     } else {
         if is_verbose {
-            info!("running {}: {:?}", description, cmd);
+            ui_info!("running {}: {:?}", description, cmd);
         } else {
-            info!("running {}", description);
+            ui_info!("running {}", description);
         }
     }
 }
