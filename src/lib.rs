@@ -124,7 +124,10 @@ fn install_cruby_src<'a>(source: &'a BuildSource, build_dir: &'a Path) -> anyhow
             if build_dir.exists() {
                 return Ok(build_dir);
             }
-            ui_info!("downloading CRuby source into {:?}", build_dir);
+            ui_info!(
+                "downloading CRuby source into {:?}",
+                relpath_for_display(build_dir),
+            );
             std::fs::create_dir_all(build_dir)?;
             static APP_USER_AGENT: &str =
                 concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
@@ -433,7 +436,7 @@ pub fn mkfs(
         if let Err(e) = std::fs::write(&fs_c, &fs_c_src) {
             log::warn!(
                 "failed to export vfs intermediate source into {:?}: {}",
-                &fs_c,
+                relpath_for_display(&fs_c),
                 e
             );
         }
@@ -453,6 +456,15 @@ fn extract_tarball<R: std::io::Read>(src: &mut R, dest: &Path) -> anyhow::Result
     std::io::copy(src, &mut tar.stdin.take().unwrap())?;
     Ok(())
 }
+
+fn relpath_for_display(path: &Path) -> &Path {
+    if let Ok(cwd) = std::env::current_dir() {
+        path.strip_prefix(cwd).unwrap_or(path)
+    } else {
+        path
+    }
+}
+
 
 pub(crate) fn is_debugging() -> bool {
     std::env::var("RBWASM_DEBUG").is_ok()
