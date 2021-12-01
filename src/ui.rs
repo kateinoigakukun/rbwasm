@@ -5,11 +5,20 @@ macro_rules! info {
     ( $ ( $ arg : tt ) * ) => ( $crate::ui::info_fmt ( format_args ! ( $ ( $ arg ) * ) ) )
 }
 
-pub(crate) fn trace_command_exec(cmd: &Command, cwd: Option<&Path>) {
+pub(crate) fn trace_command_exec(cmd: &Command, description: &str, cwd: Option<&Path>) {
+    let is_verbose = std::env::var("RBWASM_DEBUG").is_ok();
     if let Some(cwd) = cwd {
-        info!("running {:?} in {:?}", cmd, cwd);
+        if is_verbose {
+            info!("running {} in {:?}: {:?}", description, cmd, cwd);
+        } else {
+            info!("running {}", description);
+        }
     } else {
-        info!("running {:?}", cmd);
+        if is_verbose {
+            info!("running {}: {:?}", description, cmd);
+        } else {
+            info!("running {}", description);
+        }
     }
 }
 

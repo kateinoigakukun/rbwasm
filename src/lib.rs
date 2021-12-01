@@ -228,7 +228,7 @@ fn configure_cruby(
     configure_cmd.arg(format!("AR={}/bin/llvm-ar", wasi_sdk));
     configure_cmd.arg(format!("RANLIB={}/bin/llvm-ranlib", wasi_sdk));
 
-    trace_command_exec(&configure_cmd, Some(&build_dir));
+    trace_command_exec(&configure_cmd, "./configure", Some(&build_dir));
     let status = configure_cmd
         .status()
         .with_context(|| format!("failed to spawn {:?}", configure))?;
@@ -264,7 +264,7 @@ pub fn build_cruby(
     let src_dir = install_cruby_src(source, &build_dir)?;
     let autogen_sh = src_dir.join("autogen.sh");
     let mut autogen_sh = Command::new(autogen_sh.as_path());
-    trace_command_exec(&autogen_sh, None);
+    trace_command_exec(&autogen_sh, "./autogen.sh", None);
 
     let status = autogen_sh
         .status()
@@ -295,7 +295,7 @@ pub fn build_cruby(
                 .stderr(Stdio::null())
                 .arg("install")
                 .arg(format!("-j{}", num_cpus::get()));
-            trace_command_exec(&make, Some(&build_dir));
+            trace_command_exec(&make, "make install", Some(&build_dir));
             let status = make
                 .status()
                 .with_context(|| format!("failed to spawn make"))?;
@@ -340,7 +340,7 @@ pub fn link_executable(
             )))?;
 
             link.arg(libvfs_path);
-            trace_command_exec(&link, None);
+            trace_command_exec(&link, "linker", None);
             let status = link
                 .status()
                 .with_context(|| format!("failed to spawn linker"))?;
@@ -378,7 +378,7 @@ pub fn asyncify_executable(
     wasm_opt.arg("--pass-arg=asyncify-ignore-imports");
     wasm_opt.arg("-o");
     wasm_opt.arg(&output);
-    trace_command_exec(&wasm_opt, None);
+    trace_command_exec(&wasm_opt, "asyncify", None);
     let status = wasm_opt
         .status()
         .with_context(|| format!("failed to spawn wasm-opt"))?;
