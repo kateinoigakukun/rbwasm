@@ -33,7 +33,9 @@ struct Opt {
 fn main() -> anyhow::Result<()> {
     env_logger::init();
     let opt = Opt::from_args();
-    let workspace_dir = PathBuf::from(".rbwasm");
+    let workspace_dir: PathBuf = std::env::var("RBWASM_ROOT")
+        .unwrap_or(String::from(".rbwasm"))
+        .into();
     if !workspace_dir.exists() {
         log::debug!("workspace dir doesn't exist. create {:?}", workspace_dir);
         std::fs::create_dir_all(&workspace_dir)?;
