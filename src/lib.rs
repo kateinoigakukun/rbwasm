@@ -286,6 +286,10 @@ pub fn build_cruby(
         .with_context(|| format!("configuration failed"))?;
 
     let status: anyhow::Result<ExitStatus> =
+        // wasm-opt doesn't support relocatable input but clang always apply wasm-opt whenever it's installed.
+        // However rbwasm uses --relocatable linker flag to concatenate all object files including native exts
+        // into single object file and link vfs object file after building CRuby.
+        // Therefore, override wasm-opt with fake binary to avoid breaking reloc section produced by --relocatable
         workspace.with_overriding_command("wasm-opt", |fake_path| {
             let new_path = if let Some(current_path) = std::env::var_os("PATH") {
                 let mut current_paths = std::env::split_paths(&current_path).collect::<Vec<_>>();
