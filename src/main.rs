@@ -33,10 +33,13 @@ struct Opt {
 fn main() -> anyhow::Result<()> {
     env_logger::init();
     let opt = Opt::from_args();
-    let workspace = Workspace::new(PathBuf::from(".rbwasm").canonicalize()?, opt.save_temps);
-    log::info!("install build toolchain...");
+    let workspace_dir = PathBuf::from(".rbwasm");
+    if !workspace_dir.exists() {
+        log::debug!("workspace dir doesn't exist. create {:?}", workspace_dir);
+        std::fs::create_dir_all(&workspace_dir)?;
+    }
+    let workspace = Workspace::new(workspace_dir.canonicalize()?, opt.save_temps);
     let toolchain = toolchain::install_build_toolchain(&workspace)?;
-    log::info!("build cruby...");
     let ruby_source = BuildSource::GitHub {
         owner: String::from("kateinoigakukun"),
         repo: String::from("ruby"),

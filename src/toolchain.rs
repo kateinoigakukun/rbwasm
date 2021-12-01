@@ -9,6 +9,7 @@ pub struct Toolchain {
 }
 
 pub fn install_build_toolchain(workspace: &Workspace) -> anyhow::Result<Toolchain> {
+    log::info!("install build toolchain...");
     const WASI_SDK_RELEASE_TARBALL: &str = "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-14/wasi-sdk-14.0-macos.tar.gz";
     const WASI_SDK_VERSION: &str = "14.0";
     let wasi_sdk_dest = workspace

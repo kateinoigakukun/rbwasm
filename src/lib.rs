@@ -1,6 +1,6 @@
 mod github;
 pub mod toolchain;
-mod trace;
+mod ui;
 use std::{
     fs::File,
     hash::{Hash, Hasher},
@@ -14,7 +14,7 @@ use anyhow::{bail, Context};
 use siphasher::sip128::SipHasher13;
 
 use crate::toolchain::Toolchain;
-use crate::trace::trace_command_exec;
+use crate::ui::trace_command_exec;
 
 pub struct Workspace {
     dir: PathBuf,
@@ -204,7 +204,10 @@ fn configure_cruby(
         String::from("-DRB_WASM_SUPPORT_EMULATE_SETJMP"),
     ];
     let mut configure_cmd = Command::new(configure.as_path());
-    configure_cmd.current_dir(&build_dir);
+    configure_cmd
+        .current_dir(&build_dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     configure_cmd.args([
         "--host=wasm32-unknown-wasi",
         "--disable-install-doc",
@@ -225,7 +228,7 @@ fn configure_cruby(
     configure_cmd.arg(format!("AR={}/bin/llvm-ar", wasi_sdk));
     configure_cmd.arg(format!("RANLIB={}/bin/llvm-ranlib", wasi_sdk));
 
-    trace::trace_command_exec(&configure_cmd, Some(&build_dir));
+    trace_command_exec(&configure_cmd, Some(&build_dir));
     let status = configure_cmd
         .status()
         .with_context(|| format!("failed to spawn {:?}", configure))?;
@@ -246,6 +249,7 @@ pub fn build_cruby(
     toolchain: &Toolchain,
     source: &BuildSource,
 ) -> anyhow::Result<BuildResult> {
+    log::info!("build cruby...");
     let hashed_name = source.hashed_srcname("ruby");
     let build_dir = workspace.build_dir().join(&hashed_name);
     let install_dir = workspace.cache_dir().join(&hashed_name);
@@ -260,7 +264,7 @@ pub fn build_cruby(
     let src_dir = install_cruby_src(source, &build_dir)?;
     let autogen_sh = src_dir.join("autogen.sh");
     let mut autogen_sh = Command::new(autogen_sh.as_path());
-    trace::trace_command_exec(&autogen_sh, None);
+    trace_command_exec(&autogen_sh, None);
 
     let status = autogen_sh
         .status()
@@ -285,11 +289,13 @@ pub fn build_cruby(
             };
             let mut make = Command::new("make");
             log::info!("setting PATH='{}'", new_path.to_string_lossy());
-            trace_command_exec(&make, Some(&build_dir));
             make.current_dir(&build_dir)
                 .env("PATH", new_path)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .arg("install")
                 .arg(format!("-j{}", num_cpus::get()));
+            trace_command_exec(&make, Some(&build_dir));
             let status = make
                 .status()
                 .with_context(|| format!("failed to spawn make"))?;
@@ -307,7 +313,7 @@ pub fn build_cruby(
 
 pub struct LinkerInput<'a> {
     pub stack_size: usize,
-    pub fs_object: Option<&'a [u8]>
+    pub fs_object: Option<&'a [u8]>,
 }
 
 pub fn link_executable(
@@ -317,6 +323,7 @@ pub fn link_executable(
     input: &LinkerInput,
     output: &Path,
 ) -> anyhow::Result<()> {
+    log::info!("link single ruby binary");
     let wasm_ld = toolchain.wasi_sdk.join("bin/wasm-ld");
     let mut link = Command::new(wasm_ld);
     link.arg(cruby.install_dir.join("bin/ruby"));
@@ -333,7 +340,7 @@ pub fn link_executable(
             )))?;
 
             link.arg(libvfs_path);
-            log::debug!("link single ruby binary: {:?}", link);
+            trace_command_exec(&link, None);
             let status = link
                 .status()
                 .with_context(|| format!("failed to spawn linker"))?;
@@ -358,7 +365,12 @@ pub fn link_executable(
     Ok(())
 }
 
-pub fn asyncify_executable(toolchain: &Toolchain, input: &Path, output: &Path) -> anyhow::Result<()> {
+pub fn asyncify_executable(
+    toolchain: &Toolchain,
+    input: &Path,
+    output: &Path,
+) -> anyhow::Result<()> {
+    log::info!("asyncify ruby binary");
     let mut wasm_opt = Command::new(&toolchain.wasm_opt);
     wasm_opt.arg(&input);
     wasm_opt.arg("--asyncify");
@@ -366,7 +378,7 @@ pub fn asyncify_executable(toolchain: &Toolchain, input: &Path, output: &Path) -
     wasm_opt.arg("--pass-arg=asyncify-ignore-imports");
     wasm_opt.arg("-o");
     wasm_opt.arg(&output);
-    log::debug!("asyncify ruby binary: {:?}", wasm_opt);
+    trace_command_exec(&wasm_opt, None);
     let status = wasm_opt
         .status()
         .with_context(|| format!("failed to spawn wasm-opt"))?;
