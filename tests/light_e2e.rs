@@ -17,7 +17,8 @@ fn test_build_cruby_cached() {
     env_logger::init();
     let fakeruby = fakeruby();
     init_workspace!();
-    let workspace = Workspace::new(PathBuf::from(".rbwasm").canonicalize().unwrap(), true);
+    let workspace =
+        Workspace::create(PathBuf::from(".rbwasm").canonicalize().unwrap(), true).unwrap();
     let toolchain = Toolchain {
         wasm_opt: PathBuf::from("fake-wasm-opt"),
         wasi_sdk: PathBuf::from("fake-wasi-sdk"),
