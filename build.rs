@@ -8,7 +8,9 @@ fn main() {
 
 fn build_libwasi_vfs_a(out_dir: &Path) {
     let src = Path::new("./wasi-vfs");
-    let target_dir = out_dir.join("wasi-vfs-target").canonicalize().unwrap();
+    let target_dir = out_dir.join("wasi-vfs-target");
+    std::fs::create_dir_all(&target_dir).unwrap();
+    let target_dir = target_dir.canonicalize().unwrap();
     let status = Command::new("cargo")
         .current_dir(src)
         .args(["build", "--target", "wasm32-unknown-unknown", "--release"])
