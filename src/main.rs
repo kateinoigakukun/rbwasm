@@ -64,7 +64,7 @@ struct Opt {
     #[structopt(long)]
     save_temps: bool,
 
-    #[structopt(long, default_value = "github:kateinoigakukun/ruby@834e125", parse(try_from_str = parse_build_src))]
+    #[structopt(long, default_value = "github:kateinoigakukun/ruby@v3_0_2_wasm-alpha1", parse(try_from_str = parse_build_src))]
     cruby_src: BuildSource,
 }
 
