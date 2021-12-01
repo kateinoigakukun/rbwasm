@@ -1,8 +1,10 @@
 mod github;
 use std::{
+    fs::File,
     hash::{Hash, Hasher},
+    os::unix::prelude::PermissionsExt,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, ExitStatus, Stdio}, io::Write,
 };
 
 use anyhow::{bail, Context};
@@ -227,6 +229,7 @@ pub fn build_cruby(
     workspace: &Workspace,
     toolchain: &Toolchain,
     source: &BuildSource,
+    save_temps: bool,
 ) -> anyhow::Result<BuildResult> {
     let hashed_name = source.hashed_srcname("ruby");
     let build_dir = workspace.build_dir().join(&hashed_name);
@@ -251,12 +254,27 @@ pub fn build_cruby(
     configure_cruby(toolchain, src_dir, &build_dir, &install_dir)
         .with_context(|| format!("configuration failed"))?;
 
-    let status = Command::new("make")
-        .current_dir(&build_dir)
-        .arg("install")
-        .arg(format!("-j{}", num_cpus::get()))
-        .status()
-        .with_context(|| format!("failed to spawn make"))?;
+    let status: anyhow::Result<ExitStatus> = with_overriding_command("wasm-opt", save_temps, |fake_path| {
+        let new_path = if let Some(current_path) = std::env::var_os("PATH") {
+            let mut current_paths = std::env::split_paths(&current_path).collect::<Vec<_>>();
+            current_paths.insert(0, fake_path.to_path_buf());
+            std::env::join_paths(&current_paths).with_context(|| {
+                format!("failed to join PATh with {}", fake_path.to_string_lossy())
+            })?
+        } else {
+            fake_path.as_os_str().to_os_string()
+        };
+        log::debug!("setting PATH='{}'", new_path.to_string_lossy());
+        let status = Command::new("make")
+            .current_dir(&build_dir)
+            .env("PATH", new_path)
+            .arg("install")
+            .arg(format!("-j{}", num_cpus::get()))
+            .status()
+            .with_context(|| format!("failed to spawn make"))?;
+        Ok(status)
+    })?;
+    let status = status?;
     if !status.success() {
         bail!("make of cruby failed")
     }
@@ -275,4 +293,22 @@ fn extract_tarball<R: std::io::Read>(src: &mut R, dest: &Path) -> anyhow::Result
         .spawn()?;
     std::io::copy(src, &mut tar.stdin.take().unwrap())?;
     Ok(())
+}
+
+fn with_overriding_command<R, F: FnOnce(PathBuf) -> R>(cmd: &str, save_temps: bool, inner: F) -> anyhow::Result<R> {
+    let fake_bin_dir = tempfile::tempdir()?;
+    let fake_bin_dir_path = fake_bin_dir.path().to_path_buf();
+    let fake_bin = fake_bin_dir_path.join(cmd);
+    let mut fake_bin = File::create(fake_bin)?;
+    let true_bin = which::which("true").with_context(|| format!("true command not found"))?;
+    fake_bin.write_all(format!("#!{}\n", true_bin.to_string_lossy()).as_bytes())?;
+    let mut perm = fake_bin.metadata()?.permissions();
+    // chmod +x
+    perm.set_mode(perm.mode() | 0o111);
+    fake_bin.set_permissions(perm)?;
+    if save_temps {
+        std::mem::forget(fake_bin_dir);
+    }
+
+    Ok(inner(fake_bin_dir_path))
 }
