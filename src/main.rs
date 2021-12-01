@@ -1,6 +1,10 @@
 use anyhow::{bail, Context};
 use rbwasm::{build_cruby, install_build_toolchain, BuildSource, Workspace};
-use std::{io::Write, path::PathBuf, process::Command};
+use std::{
+    io::Write,
+    path::PathBuf,
+    process::{Command, ExitStatus},
+};
 use structopt::StructOpt;
 
 fn parse_map_dirs(s: &str) -> anyhow::Result<(String, String)> {
@@ -24,14 +28,14 @@ struct Opt {
     #[structopt(short)]
     output: PathBuf,
 
-    #[structopt(short)]
+    #[structopt(long)]
     save_temps: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
     let opt = Opt::from_args();
-    let workspace = Workspace::new(PathBuf::from(".rbwasm").canonicalize()?);
+    let workspace = Workspace::new(PathBuf::from(".rbwasm").canonicalize()?, opt.save_temps);
     log::info!("install build toolchain...");
     let toolchain = install_build_toolchain(&workspace)?;
     log::info!("build cruby...");
@@ -40,7 +44,7 @@ fn main() -> anyhow::Result<()> {
         repo: String::from("ruby"),
         git_ref: String::from("834e12525261d756da85b9b880dabe8407084902"),
     };
-    let cruby = build_cruby(&workspace, &toolchain, &ruby_source, opt.save_temps)?;
+    let cruby = build_cruby(&workspace, &toolchain, &ruby_source)?;
 
     let fs_obj = if !opt.map_dirs.is_empty() {
         log::info!("generating vfs image...");
@@ -52,30 +56,44 @@ fn main() -> anyhow::Result<()> {
         None
     };
     {
-        let mut fs_objfile = None;
         let wasm_ld = toolchain.wasi_sdk.join("bin/wasm-ld");
         let mut link = Command::new(wasm_ld);
         link.arg(cruby.install_dir.join("bin/ruby"));
-        if let Some(bytes) = fs_obj {
-            let mut fs_obj = tempfile::NamedTempFile::new()?;
-            fs_obj.write_all(&bytes)?;
-            link.arg(fs_obj.path());
-            fs_objfile = Some(fs_obj);
-        }
-
         link.args(["--stack-first", "-z"]);
         link.arg(format!("stack-size={}", opt.stack_size));
         link.arg("-o");
         link.arg(&opt.output);
-        log::debug!("link single ruby binary: {:?}", link);
-        let status = link
-            .status()
-            .with_context(|| format!("failed to spawn linker"))?;
+
+        fn link_inner(mut link: Command, workspace: &Workspace) -> anyhow::Result<ExitStatus> {
+            workspace.with_tempfile("libwasi_vfs.a", |libvfs, libvfs_path| {
+                libvfs.write_all(std::include_bytes!(std::concat!(
+                    std::env!("OUT_DIR"),
+                    "/wasi-vfs-target/wasm32-unknown-unknown/release/libwasi_vfs.a"
+                )))?;
+
+                link.arg(libvfs_path);
+                log::debug!("link single ruby binary: {:?}", link);
+                let status = link
+                    .status()
+                    .with_context(|| format!("failed to spawn linker"))?;
+                Ok(status)
+            })?
+        }
+
+        let status = if let Some(bytes) = fs_obj {
+            let status = workspace.with_tempfile("fs.o", |fs_obj, fs_obj_path| {
+                fs_obj.write_all(&bytes)?;
+                link.arg(fs_obj_path);
+                link_inner(link, &workspace)
+            })?;
+            status?
+        } else {
+            link_inner(link, &workspace)?
+        };
+
         if !status.success() {
             bail!("link failed")
         }
-
-        drop(fs_objfile);
     }
     {
         let mut wasm_opt = Command::new(toolchain.wasm_opt);
@@ -85,6 +103,7 @@ fn main() -> anyhow::Result<()> {
         wasm_opt.arg("--pass-arg=asyncify-ignore-imports");
         wasm_opt.arg("-o");
         wasm_opt.arg(&opt.output);
+        log::debug!("asyncify ruby binary: {:?}", wasm_opt);
         let status = wasm_opt
             .status()
             .with_context(|| format!("failed to spawn wasm-opt"))?;
