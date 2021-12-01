@@ -22,18 +22,28 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn new(dir: PathBuf, save_temps: bool) -> Workspace {
-        Workspace { dir, save_temps }
+    pub fn create(dir: PathBuf, save_temps: bool) -> std::io::Result<Workspace> {
+        let space = Workspace { dir, save_temps };
+        std::fs::create_dir_all(space.build_dir())?;
+        std::fs::create_dir_all(space.downloads_dir())?;
+        std::fs::create_dir_all(space.cache_dir())?;
+        std::fs::create_dir_all(space.temporary_dir())?;
+        Ok(space)
     }
+
+    /// Note that caller can assume the returned directory exists
     fn build_dir(&self) -> PathBuf {
         self.dir.join("build")
     }
+    /// Note that caller can assume the returned directory exists
     fn downloads_dir(&self) -> PathBuf {
         self.dir.join("downloads")
     }
+    /// Note that caller can assume the returned directory exists
     fn cache_dir(&self) -> PathBuf {
         self.dir.join("cache")
     }
+    /// Note that caller can assume the returned directory exists
     fn temporary_dir(&self) -> PathBuf {
         self.dir.join("tmp")
     }
@@ -43,7 +53,6 @@ impl Workspace {
         cmd: &str,
         inner: F,
     ) -> anyhow::Result<R> {
-        std::fs::create_dir_all(self.temporary_dir())?;
         let fake_bin_dir = tempfile::tempdir_in(self.temporary_dir())?;
         let fake_bin_dir_path = fake_bin_dir.path().to_path_buf();
         let fake_bin = fake_bin_dir_path.join(cmd);
@@ -67,7 +76,6 @@ impl Workspace {
         prefix: &str,
         inner: F,
     ) -> anyhow::Result<R> {
-        std::fs::create_dir_all(self.temporary_dir())?;
         let mut tmpfile = tempfile::Builder::new()
             .prefix(prefix)
             .tempfile_in(self.temporary_dir())?;
@@ -389,13 +397,28 @@ pub fn asyncify_executable(
     Ok(())
 }
 
-pub struct MkfsInput {
-    pub map_dirs: Vec<(String, String)>,
+pub struct MkfsInput<'a> {
+    pub ruby_root: &'a Path,
+    pub map_dirs: Vec<(PathBuf, PathBuf)>,
 }
 
-pub fn mkfs(toolchain: &Toolchain, input: &MkfsInput) -> anyhow::Result<Vec<u8>> {
+fn expand_map_dir(map_dir: (PathBuf, PathBuf), ruby_root: &Path) -> (PathBuf, PathBuf) {
+    let (guest, mut host) = map_dir;
+    let magic_prefix = "@ruby_root";
+    if let Ok(stripped) = host.strip_prefix(magic_prefix) {
+        host = ruby_root.join(stripped);
+    }
+    (guest, host)
+}
+
+pub fn mkfs(toolchain: &Toolchain, input: MkfsInput) -> anyhow::Result<Vec<u8>> {
     ui_info!("generating vfs image");
-    let fs_c_src = wasi_vfs_mkfs::generate_c_source(&input.map_dirs)?;
+    let ruby_root = input.ruby_root;
+    let map_dirs = input
+        .map_dirs
+        .into_iter()
+        .map(|map| expand_map_dir(map, ruby_root));
+    let fs_c_src = wasi_vfs_mkfs::generate_c_source(map_dirs)?;
     let clang = toolchain.wasi_sdk.join("bin/clang");
     let object = wasi_vfs_mkfs::generate_obj(&fs_c_src, &clang.to_string_lossy())?;
     Ok(object)
@@ -410,4 +433,21 @@ fn extract_tarball<R: std::io::Read>(src: &mut R, dest: &Path) -> anyhow::Result
         .spawn()?;
     std::io::copy(src, &mut tar.stdin.take().unwrap())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use crate::expand_map_dir;
+
+    #[test]
+    fn test_expand_map_dir() {
+        let (guest, host) = expand_map_dir(
+            ("/gems".into(), "@ruby_root/lib/gems".into()),
+            Path::new("/prefix"),
+        );
+        assert_eq!(host.to_string_lossy(), "/prefix/lib/gems");
+        assert_eq!(guest.to_string_lossy(), "/gems");
+    }
 }

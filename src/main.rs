@@ -5,7 +5,7 @@ use rbwasm::{
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-fn parse_map_dirs(s: &str) -> anyhow::Result<(String, String)> {
+fn parse_map_dirs(s: &str) -> anyhow::Result<(PathBuf, PathBuf)> {
     let parts: Vec<&str> = s.split("::").collect();
     if parts.len() != 2 {
         return Err(anyhow::anyhow!(
@@ -18,7 +18,7 @@ fn parse_map_dirs(s: &str) -> anyhow::Result<(String, String)> {
 #[derive(StructOpt)]
 struct Opt {
     #[structopt(long = "mapdir", number_of_values = 1, value_name = "GUEST_DIR::HOST_DIR", parse(try_from_str = parse_map_dirs))]
-    map_dirs: Vec<(String, String)>,
+    map_dirs: Vec<(PathBuf, PathBuf)>,
 
     #[structopt(long, default_value = "16777216")]
     stack_size: usize,
@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
         log::debug!("workspace dir doesn't exist. create {:?}", workspace_dir);
         std::fs::create_dir_all(&workspace_dir)?;
     }
-    let workspace = Workspace::new(workspace_dir.canonicalize()?, opt.save_temps);
+    let workspace = Workspace::create(workspace_dir.canonicalize()?, opt.save_temps)?;
     let toolchain = toolchain::install_build_toolchain(&workspace)?;
     let ruby_source = BuildSource::GitHub {
         owner: String::from("kateinoigakukun"),
@@ -52,8 +52,9 @@ fn main() -> anyhow::Result<()> {
     let fs_object = if !opt.map_dirs.is_empty() {
         let input = MkfsInput {
             map_dirs: opt.map_dirs,
+            ruby_root: &cruby.install_dir,
         };
-        Some(mkfs(&toolchain, &input)?)
+        Some(mkfs(&toolchain, input)?)
     } else {
         None
     };
