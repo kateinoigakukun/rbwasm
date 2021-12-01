@@ -21,7 +21,9 @@ pub fn _internal_init_workspace(tmpdir: &str) -> TestWorkspace {
     let root_dir = PathBuf::from(tmpdir);
 
     let work_dir = root_dir.join(id.to_string());
-    std::fs::remove_dir_all(&work_dir).unwrap();
+    if work_dir.exists() {
+        std::fs::remove_dir_all(&work_dir).unwrap();
+    }
     std::fs::create_dir_all(&work_dir.join(".rbwasm")).unwrap();
     std::env::set_current_dir(&work_dir).unwrap();
     TestWorkspace { work_dir }
