@@ -54,7 +54,7 @@ fn main() -> anyhow::Result<()> {
             map_dirs: opt.map_dirs,
             ruby_root: &cruby.install_dir,
         };
-        Some(mkfs(&toolchain, input)?)
+        Some(mkfs(&workspace, &toolchain, input)?)
     } else {
         None
     };

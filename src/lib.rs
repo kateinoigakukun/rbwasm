@@ -411,7 +411,7 @@ fn expand_map_dir(map_dir: (PathBuf, PathBuf), ruby_root: &Path) -> (PathBuf, Pa
     (guest, host)
 }
 
-pub fn mkfs(toolchain: &Toolchain, input: MkfsInput) -> anyhow::Result<Vec<u8>> {
+pub fn mkfs(workspace: &Workspace, toolchain: &Toolchain, input: MkfsInput) -> anyhow::Result<Vec<u8>> {
     ui_info!("generating vfs image");
     let ruby_root = input.ruby_root;
     let map_dirs = input
@@ -419,6 +419,13 @@ pub fn mkfs(toolchain: &Toolchain, input: MkfsInput) -> anyhow::Result<Vec<u8>> 
         .into_iter()
         .map(|map| expand_map_dir(map, ruby_root));
     let fs_c_src = wasi_vfs_mkfs::generate_c_source(map_dirs)?;
+    if is_debugging() {
+        let fs_c = workspace.temporary_dir().join("fs.c");
+        ui_info!("exporting vfs intermediate source to {:?}", &fs_c);
+        if let Err(e) = std::fs::write(&fs_c, &fs_c_src) {
+            log::warn!("failed to export vfs intermediate source into {:?}: {}", &fs_c, e);
+        }
+    }
     let clang = toolchain.wasi_sdk.join("bin/clang");
     let object = wasi_vfs_mkfs::generate_obj(&fs_c_src, &clang.to_string_lossy())?;
     Ok(object)
@@ -433,6 +440,10 @@ fn extract_tarball<R: std::io::Read>(src: &mut R, dest: &Path) -> anyhow::Result
         .spawn()?;
     std::io::copy(src, &mut tar.stdin.take().unwrap())?;
     Ok(())
+}
+
+pub(crate) fn is_debugging() -> bool {
+    std::env::var("RBWASM_DEBUG").is_ok()
 }
 
 #[cfg(test)]
