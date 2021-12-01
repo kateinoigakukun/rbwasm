@@ -109,7 +109,11 @@ mod tests {
     fn parse_build_source_github() {
         let src = parse_build_src("github:rust-lang/rust@main").expect("parse failed");
         match src {
-            rbwasm::BuildSource::GitHub { owner, repo, git_ref } => {
+            rbwasm::BuildSource::GitHub {
+                owner,
+                repo,
+                git_ref,
+            } => {
                 assert_eq!(owner, "rust-lang");
                 assert_eq!(repo, "rust");
                 assert_eq!(git_ref, "main");
