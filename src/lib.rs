@@ -56,13 +56,16 @@ impl Workspace {
         let fake_bin_dir = tempfile::tempdir_in(self.temporary_dir())?;
         let fake_bin_dir_path = fake_bin_dir.path().to_path_buf();
         let fake_bin = fake_bin_dir_path.join(cmd);
-        let mut fake_bin = File::create(fake_bin)?;
-        let true_bin = which::which("true").with_context(|| format!("true command not found"))?;
-        fake_bin.write_all(format!("#!{}\n", true_bin.to_string_lossy()).as_bytes())?;
-        let mut perm = fake_bin.metadata()?.permissions();
-        // chmod +x
-        perm.set_mode(perm.mode() | 0o111);
-        fake_bin.set_permissions(perm)?;
+        {
+            let mut fake_bin = File::create(fake_bin)?;
+            let true_bin = which::which("true").with_context(|| format!("true command not found"))?;
+            fake_bin.write_all(format!("#!{}\n", true_bin.to_string_lossy()).as_bytes())?;
+            let mut perm = fake_bin.metadata()?.permissions();
+            // chmod +x
+            perm.set_mode(perm.mode() | 0o111);
+            fake_bin.set_permissions(perm)?;
+        }
+
         let result = inner(fake_bin_dir_path);
         if self.save_temps {
             std::mem::forget(fake_bin_dir);
