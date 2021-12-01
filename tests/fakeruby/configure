@@ -1,3 +1,4 @@
+#!/bin/bash
 FAKERUBY_ROOT="$(cd "$(dirname $0)" && pwd)"
 
 while [ $# -ne 0 ]; do
