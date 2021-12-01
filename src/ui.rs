@@ -12,7 +12,7 @@ pub(crate) fn trace_command_exec(cmd: &Command, description: &str, cwd: Option<&
     let is_verbose = is_debugging();
     if let Some(cwd) = cwd {
         if is_verbose {
-            ui_info!("running {} in {:?}: {:?}", description, cmd, cwd);
+            ui_info!("running {} in {:?}: {:?}", description, cwd, cmd);
         } else {
             ui_info!("running {}", description);
         }
