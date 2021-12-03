@@ -459,7 +459,6 @@ pub fn builtin_map_paths(installed_ruby_root: &Path) -> anyhow::Result<Vec<(Path
         ".*/cache/.*\\.gem$",
         ".*/libruby-static\\.a$",
         ".*/bin/ruby$",
-        "lib/ruby/.*/reline.*",
     ];
     let excludes = excludes
         .into_iter()
