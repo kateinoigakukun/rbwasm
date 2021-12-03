@@ -6,6 +6,9 @@ while [ $# -ne 0 ]; do
     --prefix=*)
         PREFIX="${1#*=}"
   ;;
+    --with-destdir=*)
+        DESTDIR="${1#*=}"
+  ;;
     *)
         # ignore other options
   ;;
@@ -13,5 +16,5 @@ while [ $# -ne 0 ]; do
   shift
 done
 
-mkdir -p $PREFIX
+mkdir -p $DESTDIR/$PREFIX
 cp $FAKERUBY_ROOT/Makefile .

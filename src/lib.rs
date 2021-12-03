@@ -58,7 +58,8 @@ impl Workspace {
         let fake_bin = fake_bin_dir_path.join(cmd);
         {
             let mut fake_bin = File::create(fake_bin)?;
-            let true_bin = which::which("true").with_context(|| format!("true command not found"))?;
+            let true_bin =
+                which::which("true").with_context(|| format!("true command not found"))?;
             fake_bin.write_all(format!("#!{}\n", true_bin.to_string_lossy()).as_bytes())?;
             let mut perm = fake_bin.metadata()?.permissions();
             // chmod +x
@@ -158,6 +159,7 @@ fn configure_cruby(
     src_dir: &Path,
     build_dir: &Path,
     install_dir: &Path,
+    prefix: &Path,
 ) -> anyhow::Result<()> {
     log::info!("configure cruby");
     let wasi_sdk = toolchain.wasi_sdk.as_path().to_string_lossy();
@@ -232,7 +234,8 @@ fn configure_cruby(
         "--with-coroutine=asyncify",
         "--with-static-linked-ext",
     ]);
-    configure_cmd.arg(format!("--prefix={}", install_dir.to_string_lossy()));
+    configure_cmd.arg(format!("--prefix={}", prefix.to_string_lossy()));
+    configure_cmd.arg(format!("--with-destdir={}", install_dir.to_string_lossy()));
     configure_cmd.arg(format!(
         "--with-ext={}",
         default_enabled_extensions.join(",")
@@ -258,7 +261,10 @@ fn configure_cruby(
 pub struct BuildResult {
     pub install_dir: PathBuf,
     pub cached: bool,
+    pub prefix: PathBuf,
 }
+
+const GUEST_RUBY_ROOT: &str = "/embd-root/ruby";
 
 /// Build CRuby from a given source and returns installed path
 pub fn build_cruby(
@@ -267,6 +273,7 @@ pub fn build_cruby(
     source: &BuildSource,
 ) -> anyhow::Result<BuildResult> {
     log::info!("build cruby...");
+    let guest_ruby_root: PathBuf = GUEST_RUBY_ROOT.into();
     let hashed_name = source.hashed_srcname("ruby");
     let build_dir = workspace.build_dir().join(&hashed_name);
     let install_dir = workspace.cache_dir().join(&hashed_name);
@@ -275,6 +282,7 @@ pub fn build_cruby(
         return Ok(BuildResult {
             install_dir,
             cached: true,
+            prefix: guest_ruby_root,
         });
     }
 
@@ -290,8 +298,14 @@ pub fn build_cruby(
         bail!("{:?} failed", autogen_sh)
     }
 
-    configure_cruby(toolchain, src_dir, &build_dir, &install_dir)
-        .with_context(|| format!("configuration failed"))?;
+    configure_cruby(
+        toolchain,
+        src_dir,
+        &build_dir,
+        &install_dir,
+        &guest_ruby_root,
+    )
+    .with_context(|| format!("configuration failed"))?;
 
     let status: anyhow::Result<ExitStatus> =
         // wasm-opt doesn't support relocatable input but clang always apply wasm-opt whenever it's installed.
@@ -331,6 +345,7 @@ pub fn build_cruby(
     Ok(BuildResult {
         install_dir,
         cached: false,
+        prefix: guest_ruby_root,
     })
 }
 
@@ -349,7 +364,12 @@ pub fn link_executable(
     log::info!("link single ruby binary");
     let wasm_ld = toolchain.wasi_sdk.join("bin/wasm-ld");
     let mut link = Command::new(wasm_ld);
-    link.arg(cruby.install_dir.join("bin/ruby"));
+    link.arg(
+        cruby
+            .install_dir
+            .join(cruby.prefix.strip_prefix("/")?)
+            .join("bin/ruby"),
+    );
     link.args(["--stack-first", "-z"]);
     link.arg(format!("stack-size={}", input.stack_size));
     link.arg("-o");
