@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{bail, Context};
+use regex::Regex;
 use siphasher::sip128::SipHasher13;
 
 use crate::toolchain::Toolchain;
@@ -264,8 +265,6 @@ pub struct BuildResult {
     pub prefix: PathBuf,
 }
 
-const GUEST_RUBY_ROOT: &str = "/embd-root/ruby";
-
 /// Build CRuby from a given source and returns installed path
 pub fn build_cruby(
     workspace: &Workspace,
@@ -273,6 +272,7 @@ pub fn build_cruby(
     source: &BuildSource,
 ) -> anyhow::Result<BuildResult> {
     log::info!("build cruby...");
+    const GUEST_RUBY_ROOT: &str = "/embd-root/ruby";
     let guest_ruby_root: PathBuf = GUEST_RUBY_ROOT.into();
     let hashed_name = source.hashed_srcname("ruby");
     let build_dir = workspace.build_dir().join(&hashed_name);
@@ -432,17 +432,69 @@ pub fn asyncify_executable(
 }
 
 pub struct MkfsInput<'a> {
-    pub ruby_root: &'a Path,
-    pub map_dirs: Vec<(PathBuf, PathBuf)>,
+    pub host_ruby_root: &'a Path,
+    pub guest_ruby_root: &'a Path,
+    pub map_paths: Vec<(PathBuf, PathBuf)>,
 }
 
-fn expand_map_dir(map_dir: (PathBuf, PathBuf), ruby_root: &Path) -> (PathBuf, PathBuf) {
-    let (guest, mut host) = map_dir;
+fn expand_map_dir(
+    map_dir: (PathBuf, PathBuf),
+    host_ruby_root: &Path,
+    guest_ruby_root: &Path,
+) -> (PathBuf, PathBuf) {
+    let (mut guest, mut host) = map_dir;
     let magic_prefix = "@ruby_root";
     if let Ok(stripped) = host.strip_prefix(magic_prefix) {
-        host = ruby_root.join(stripped);
+        host = host_ruby_root.join(stripped);
+    }
+    if let Ok(stripped) = guest.strip_prefix(magic_prefix) {
+        guest = guest_ruby_root.join(stripped);
     }
     (guest, host)
+}
+
+pub fn builtin_map_paths(installed_ruby_root: &Path) -> anyhow::Result<Vec<(PathBuf, PathBuf)>> {
+    log::info!("collect builtin files to map them in vfs");
+    let excludes = [
+        ".*/cache/.*\\.gem$",
+        ".*/libruby-static\\.a$",
+        ".*/bin/ruby$",
+        "lib/ruby/.*/reline.*",
+    ];
+    let excludes = excludes
+        .into_iter()
+        .map(Regex::new)
+        .collect::<Result<Vec<_>, regex::Error>>()?;
+
+    fn visit_dirs(dir: &Path, excludes: &[Regex], paths: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+        for entry in std::fs::read_dir(dir).with_context(|| format!("failed to read dir: {:?}", dir))? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                visit_dirs(&path, excludes, paths)?;
+            } else {
+                let path_str = path.to_string_lossy();
+                let is_excluded = excludes.iter().any(|x| x.is_match(&path_str));
+                if !is_excluded {
+                    paths.push(path);
+                } else {
+                    log::debug!("vfs: excluded {:?}", path);
+                }
+            }
+        }
+        Ok(())
+    }
+    let mut paths = vec![];
+    visit_dirs(installed_ruby_root, &excludes, &mut paths)?;
+    Ok(paths
+        .into_iter()
+        .map(move |path| {
+            let guest = path.strip_prefix(installed_ruby_root).unwrap();
+            let guest = Path::new("@ruby_root").join(guest);
+            let host = path;
+            (guest, host)
+        })
+        .collect())
 }
 
 pub fn mkfs(
@@ -451,12 +503,11 @@ pub fn mkfs(
     input: MkfsInput,
 ) -> anyhow::Result<Vec<u8>> {
     ui_info!("generating vfs image");
-    let ruby_root = input.ruby_root;
-    let map_dirs = input
-        .map_dirs
+    let map_paths = input
+        .map_paths
         .into_iter()
-        .map(|map| expand_map_dir(map, ruby_root));
-    let fs_c_src = wasi_vfs_mkfs::generate_c_source(map_dirs)?;
+        .map(|map| expand_map_dir(map, input.host_ruby_root, input.guest_ruby_root));
+    let fs_c_src = wasi_vfs_mkfs::generate_c_source(map_paths)?;
     if is_debugging() {
         let fs_c = workspace.temporary_dir().join("fs.c");
         ui_info!("exporting vfs intermediate source to {:?}", &fs_c);
@@ -506,9 +557,10 @@ mod tests {
     fn test_expand_map_dir() {
         let (guest, host) = expand_map_dir(
             ("/gems".into(), "@ruby_root/lib/gems".into()),
+            Path::new("/install/prefix"),
             Path::new("/prefix"),
         );
-        assert_eq!(host.to_string_lossy(), "/prefix/lib/gems");
+        assert_eq!(host.to_string_lossy(), "/install/prefix/lib/gems");
         assert_eq!(guest.to_string_lossy(), "/gems");
     }
 }

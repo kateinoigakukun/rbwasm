@@ -1,7 +1,7 @@
 use anyhow::bail;
 use rbwasm::{
     asyncify_executable, build_cruby, link_executable, mkfs, toolchain, BuildSource, LinkerInput,
-    MkfsInput, Workspace,
+    MkfsInput, Workspace, builtin_map_paths,
 };
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -82,10 +82,15 @@ fn main() -> anyhow::Result<()> {
     let toolchain = toolchain::install_build_toolchain(&workspace)?;
     let cruby = build_cruby(&workspace, &toolchain, &opt.cruby_src)?;
 
-    let fs_object = if !opt.map_dirs.is_empty() {
+    let installed_ruby_root = cruby.install_dir.join(cruby.prefix.strip_prefix("/")?);
+    let mut map_paths = builtin_map_paths(&installed_ruby_root)?;
+    map_paths.extend(opt.map_dirs);
+
+    let fs_object = if !map_paths.is_empty() {
         let input = MkfsInput {
-            map_dirs: opt.map_dirs,
-            ruby_root: &cruby.install_dir,
+            map_paths,
+            host_ruby_root: &installed_ruby_root,
+            guest_ruby_root: &cruby.prefix.strip_prefix("/embd-root").unwrap(),
         };
         Some(mkfs(&workspace, &toolchain, input)?)
     } else {

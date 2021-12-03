@@ -676,6 +676,7 @@ dependencies = [
  "num_cpus",
  "openssl",
  "rbwasm-test-support",
+ "regex",
  "reqwest",
  "siphasher",
  "structopt",

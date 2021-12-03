@@ -17,6 +17,7 @@ num_cpus = "1.13"
 wasi-vfs-mkfs = { path = "wasi-vfs/crates/wasi-vfs-mkfs" }
 tempfile = "3.2"
 ansi_term = "0.12"
+regex = "1"
 
 [dev-dependencies]
 rbwasm-test-support = { path = "crates/rbwasm-test-support" }
