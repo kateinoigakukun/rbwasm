@@ -168,36 +168,20 @@ fn configure_cruby(
 
     std::fs::create_dir_all(build_dir).with_context(|| format!("failed to create build dir"))?;
 
-    let default_enabled_extensions = [
-        "bigdecimal",
-        "cgi/escape",
-        "continuation",
-        "coverage",
-        "date",
-        "dbm",
-        "digest/bubblebabble",
-        "digest",
-        "digest/md5",
-        "digest/rmd160",
-        "digest/sha1",
-        "digest/sha2",
-        "etc",
-        "fcntl",
-        "fiber",
-        "gdbm",
-        "json",
-        "json/generator",
-        "json/parser",
-        "nkf",
-        "objspace",
-        "pathname",
-        "psych",
-        "racc/cparse",
-        "rbconfig/sizeof",
-        "ripper",
-        "stringio",
-        "strscan",
-        "monitor",
+    let default_disabled_extensions = [
+        "cgi",
+        "fiddle",
+        "io",
+        "openssl",
+        "pty",
+        "racc",
+        "readline",
+        "rubyvm",
+        "socket",
+        "syslog",
+        "win32",
+        "win32ole",
+        "zlib"
     ];
     let configure = src_dir.join("configure").canonicalize()?;
     let ldflags = [
@@ -238,8 +222,8 @@ fn configure_cruby(
     configure_cmd.arg(format!("--prefix={}", prefix.to_string_lossy()));
     configure_cmd.arg(format!("--with-destdir={}", install_dir.to_string_lossy()));
     configure_cmd.arg(format!(
-        "--with-ext={}",
-        default_enabled_extensions.join(",")
+        "--with-out-ext={}",
+        default_disabled_extensions.join(",")
     ));
     configure_cmd.arg("XLDFLAGS=-Xlinker --relocatable");
     configure_cmd.arg(format!("LDFLAGS={}", ldflags.join(" ")));
