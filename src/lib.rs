@@ -118,8 +118,8 @@ impl BuildSource {
     }
 }
 
-/// Retrieve a CRuby source from BuildSource and returns source directory
-fn install_cruby_src<'a>(source: &'a BuildSource, build_dir: &'a Path) -> anyhow::Result<&'a Path> {
+/// Retrieve a build source from BuildSource and returns source directory
+fn install_build_src<'a>(source: &'a BuildSource, build_dir: &'a Path) -> anyhow::Result<&'a Path> {
     match source {
         BuildSource::GitHub {
             owner,
@@ -130,7 +130,9 @@ fn install_cruby_src<'a>(source: &'a BuildSource, build_dir: &'a Path) -> anyhow
                 return Ok(build_dir);
             }
             ui_info!(
-                "downloading CRuby source into {:?}",
+                "downloading {}/{} source into {:?}",
+                owner,
+                repo,
                 relpath_for_display(build_dir),
             );
             std::fs::create_dir_all(build_dir)?;
@@ -155,16 +157,85 @@ fn install_cruby_src<'a>(source: &'a BuildSource, build_dir: &'a Path) -> anyhow
     }
 }
 
+pub fn build_rb_wasm_support(
+    workspace: &Workspace,
+    toolchain: &Toolchain,
+    source: &BuildSource,
+    asyncify_stack_size: usize,
+) -> anyhow::Result<BuildResult> {
+    log::info!("build rb-wasm-support...");
+    let hashed_name = source.hashed_srcname("rb-wasm-support");
+    let build_dir = workspace.build_dir().join(&hashed_name);
+    let install_dir = workspace.cache_dir().join(&hashed_name);
+    if install_dir.exists() {
+        log::info!("rb-wasm-support build cache found. skip building again");
+        return Ok(BuildResult {
+            install_dir,
+            cached: true,
+            prefix: "/".into(),
+        });
+    }
+    let src_dir = install_build_src(source, &build_dir)?;
+    let mut make = Command::new("make");
+    make.arg("-C")
+        .arg(src_dir)
+        .arg("install")
+        .arg(format!("PREFIX={}", install_dir.to_string_lossy()))
+        .arg(format!(
+            "MC={} -c",
+            toolchain.wasi_sdk.join("bin/clang").to_string_lossy()
+        ))
+        .arg(format!(
+            "CC={}",
+            toolchain.wasi_sdk.join("bin/clang").to_string_lossy()
+        ))
+        .arg(format!(
+            "AR={}",
+            toolchain.wasi_sdk.join("bin/llvm-ar").to_string_lossy()
+        ))
+        .arg(format!(
+            "SYSROOT={}",
+            toolchain
+                .wasi_sdk
+                .join("share/wasi-sysroot")
+                .to_string_lossy()
+        ))
+        .arg(format!(
+            "OPTFLAGS=-DRB_WASM_SUPPORT_FRAME_BUFFER_SIZE={}",
+            asyncify_stack_size
+        ));
+    if !is_debugging() {
+        make.stdout(Stdio::null()).stderr(Stdio::null());
+    }
+
+    trace_command_exec(&make, "make install", None);
+
+    let status = make
+        .status()
+        .with_context(|| format!("failed to spawn make for rb-wasm-support"))?;
+    if !status.success() {
+        bail!("make of rb-wasm-support failed")
+    }
+
+    Ok(BuildResult {
+        install_dir,
+        cached: false,
+        prefix: "/".into(),
+    })
+}
+
 fn configure_cruby(
     toolchain: &Toolchain,
     src_dir: &Path,
     build_dir: &Path,
     install_dir: &Path,
     prefix: &Path,
+    rb_wasm_support: &BuildResult,
+    asyncify_stack_size: usize,
 ) -> anyhow::Result<()> {
     log::info!("configure cruby");
     let wasi_sdk = toolchain.wasi_sdk.as_path().to_string_lossy();
-    let rb_wasm_support = toolchain.rb_wasm_support.as_path().to_string_lossy();
+    let rb_wasm_support = rb_wasm_support.install_dir.as_path().to_string_lossy();
 
     std::fs::create_dir_all(build_dir).with_context(|| format!("failed to create build dir"))?;
 
@@ -220,6 +291,10 @@ fn configure_cruby(
         String::from("-D_WASI_EMULATED_GETPID"),
         String::from("-D_WASI_EMULATED_PROCESS_CLOCKS"),
         String::from("-DRB_WASM_SUPPORT_EMULATE_SETJMP"),
+        format!(
+            "-DRB_WASM_SUPPORT_FRAME_BUFFER_SIZE={}",
+            asyncify_stack_size
+        ),
     ];
     let mut configure_cmd = Command::new(configure.as_path());
     configure_cmd.current_dir(&build_dir);
@@ -270,6 +345,8 @@ pub fn build_cruby(
     workspace: &Workspace,
     toolchain: &Toolchain,
     source: &BuildSource,
+    rb_wasm_support: &BuildResult,
+    asyncify_stack_size: usize,
 ) -> anyhow::Result<BuildResult> {
     log::info!("build cruby...");
     const GUEST_RUBY_ROOT: &str = "/embd-root/ruby";
@@ -277,7 +354,7 @@ pub fn build_cruby(
     let hashed_name = source.hashed_srcname("ruby");
     let build_dir = workspace.build_dir().join(&hashed_name);
     let install_dir = workspace.cache_dir().join(&hashed_name);
-    if install_dir.exists() {
+    if install_dir.exists() && rb_wasm_support.cached {
         log::info!("cruby build cache found. skip building again");
         return Ok(BuildResult {
             install_dir,
@@ -286,7 +363,7 @@ pub fn build_cruby(
         });
     }
 
-    let src_dir = install_cruby_src(source, &build_dir)?;
+    let src_dir = install_build_src(source, &build_dir)?;
     let autogen_sh = src_dir.join("autogen.sh");
     let mut autogen_sh = Command::new(autogen_sh.as_path());
     trace_command_exec(&autogen_sh, "./autogen.sh", None);
@@ -304,6 +381,8 @@ pub fn build_cruby(
         &build_dir,
         &install_dir,
         &guest_ruby_root,
+        rb_wasm_support,
+        asyncify_stack_size,
     )
     .with_context(|| format!("configuration failed"))?;
 
@@ -466,7 +545,9 @@ pub fn builtin_map_paths(installed_ruby_root: &Path) -> anyhow::Result<Vec<(Path
         .collect::<Result<Vec<_>, regex::Error>>()?;
 
     fn visit_dirs(dir: &Path, excludes: &[Regex], paths: &mut Vec<PathBuf>) -> anyhow::Result<()> {
-        for entry in std::fs::read_dir(dir).with_context(|| format!("failed to read dir: {:?}", dir))? {
+        for entry in
+            std::fs::read_dir(dir).with_context(|| format!("failed to read dir: {:?}", dir))?
+        {
             let entry = entry?;
             let path = entry.path();
             if path.is_dir() {

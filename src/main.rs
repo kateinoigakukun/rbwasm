@@ -1,7 +1,7 @@
 use anyhow::bail;
 use rbwasm::{
-    asyncify_executable, build_cruby, link_executable, mkfs, toolchain, BuildSource, LinkerInput,
-    MkfsInput, Workspace, builtin_map_paths,
+    asyncify_executable, build_cruby, build_rb_wasm_support, builtin_map_paths, link_executable,
+    mkfs, toolchain, BuildSource, LinkerInput, MkfsInput, Workspace,
 };
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -58,6 +58,9 @@ struct Opt {
     #[structopt(long, default_value = "16777216")]
     stack_size: usize,
 
+    #[structopt(long, default_value = "6144")]
+    asyncify_stack_size: usize,
+
     #[structopt(short)]
     output: PathBuf,
 
@@ -66,6 +69,9 @@ struct Opt {
 
     #[structopt(long, default_value = "github:kateinoigakukun/ruby@v3_0_2_wasm-alpha1", parse(try_from_str = parse_build_src))]
     cruby_src: BuildSource,
+
+    #[structopt(long, default_value = "github:kateinoigakukun/rb-wasm-support@0.4.0", parse(try_from_str = parse_build_src))]
+    rb_wasm_support_src: BuildSource,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -80,7 +86,19 @@ fn main() -> anyhow::Result<()> {
     }
     let workspace = Workspace::create(workspace_dir.canonicalize()?, opt.save_temps)?;
     let toolchain = toolchain::install_build_toolchain(&workspace)?;
-    let cruby = build_cruby(&workspace, &toolchain, &opt.cruby_src)?;
+    let rb_wasm_support = build_rb_wasm_support(
+        &workspace,
+        &toolchain,
+        &opt.rb_wasm_support_src,
+        opt.asyncify_stack_size,
+    )?;
+    let cruby = build_cruby(
+        &workspace,
+        &toolchain,
+        &opt.cruby_src,
+        &rb_wasm_support,
+        opt.asyncify_stack_size,
+    )?;
 
     let installed_ruby_root = cruby.install_dir.join(cruby.prefix.strip_prefix("/")?);
     let mut map_paths = builtin_map_paths(&installed_ruby_root)?;
