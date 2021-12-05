@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use rbwasm::{build_cruby, toolchain::Toolchain, BuildSource, Workspace};
+use rbwasm::{build_cruby, toolchain::Toolchain, BuildResult, BuildSource, Workspace};
 use rbwasm_test_support::init_workspace;
 
 fn fakeruby() -> PathBuf {
@@ -22,12 +22,16 @@ fn test_build_cruby_cached() {
     let toolchain = Toolchain {
         wasm_opt: PathBuf::from("fake-wasm-opt"),
         wasi_sdk: PathBuf::from("fake-wasi-sdk"),
-        rb_wasm_support: PathBuf::from("fake-rb-wasm-support"),
     };
     let build_source = BuildSource::Dir { path: fakeruby };
+    let rb_wasm_support = BuildResult {
+        install_dir: "/install/prefix".into(),
+        cached: true,
+        prefix: "/prefix".into(),
+    };
 
-    let result = build_cruby(&workspace, &toolchain, &build_source).unwrap();
+    let result = build_cruby(&workspace, &toolchain, &build_source, &rb_wasm_support, 0).unwrap();
     assert_eq!(result.cached, false);
-    let result = build_cruby(&workspace, &toolchain, &build_source).unwrap();
+    let result = build_cruby(&workspace, &toolchain, &build_source, &rb_wasm_support, 0).unwrap();
     assert_eq!(result.cached, true);
 }

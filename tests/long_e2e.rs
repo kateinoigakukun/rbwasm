@@ -15,6 +15,20 @@ fn test_build_cruby() {
         repo: String::from("ruby"),
         git_ref: String::from("834e12525261d756da85b9b880dabe8407084902"),
     };
-    build_cruby(&workspace, &toolchain, &ruby_source).expect("failed build cruby");
+    let asyncify_stack_size = 1024;
+    let rb_wasm_support_source = BuildSource::GitHub {
+        owner: String::from("kateinoigakukun"),
+        repo: String::from("rb-wasm-support"),
+        git_ref: String::from("0.4.0"),
+    };
+    let rb_wasm_support = build_rb_wasm_support(
+        &workspace,
+        &toolchain,
+        &rb_wasm_support_source,
+        asyncify_stack_size,
+    )
+    .expect("failed build rb-wasm-support");
+    build_cruby(&workspace, &toolchain, &ruby_source, &rb_wasm_support, 0)
+        .expect("failed build cruby");
     drop(space)
 }
