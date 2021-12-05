@@ -67,6 +67,9 @@ struct Opt {
     #[structopt(long)]
     save_temps: bool,
 
+    #[structopt(long)]
+    no_builtin_files: bool,
+
     #[structopt(long, default_value = "github:kateinoigakukun/ruby@v3_0_2_wasm-alpha1", parse(try_from_str = parse_build_src))]
     cruby_src: BuildSource,
 
@@ -107,7 +110,11 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     let installed_ruby_root = cruby.install_dir.join(cruby.prefix.strip_prefix("/")?);
-    let mut map_paths = builtin_map_paths(&installed_ruby_root)?;
+    let mut map_paths = if !opt.no_builtin_files {
+        builtin_map_paths(&installed_ruby_root)?
+    } else {
+        vec![]
+    };
     map_paths.extend(opt.map_dirs);
 
     let mut raw_objects = vec![];
