@@ -431,6 +431,7 @@ pub fn build_cruby(
 pub struct LinkerInput<'a> {
     pub stack_size: usize,
     pub fs_object: Option<&'a [u8]>,
+    pub extra_args: &'a [String],
 }
 
 pub fn link_executable(
@@ -453,6 +454,7 @@ pub fn link_executable(
     link.arg(format!("stack-size={}", input.stack_size));
     link.arg("-o");
     link.arg(output);
+    link.args(input.extra_args);
 
     fn link_inner(mut link: Command, workspace: &Workspace) -> anyhow::Result<ExitStatus> {
         workspace.with_tempfile("libwasi_vfs.a", |libvfs, libvfs_path| {

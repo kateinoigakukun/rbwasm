@@ -72,6 +72,9 @@ struct Opt {
 
     #[structopt(long, default_value = "github:kateinoigakukun/rb-wasm-support@0.4.0", parse(try_from_str = parse_build_src))]
     rb_wasm_support_src: BuildSource,
+
+    #[structopt(long = "Xlinker", number_of_values = 1)]
+    extra_linker_args: Vec<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -117,6 +120,7 @@ fn main() -> anyhow::Result<()> {
     let linker_input = LinkerInput {
         stack_size: opt.stack_size,
         fs_object: fs_object.as_deref(),
+        extra_args: &opt.extra_linker_args,
     };
 
     link_executable(&workspace, &toolchain, &cruby, &linker_input, &opt.output)?;
