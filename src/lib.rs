@@ -225,6 +225,38 @@ pub fn build_rb_wasm_support(
     })
 }
 
+pub const DEFAULT_ENABLED_EXTENSIONS: [&str; 29] = [
+    "bigdecimal",
+    "cgi/escape",
+    "continuation",
+    "coverage",
+    "date",
+    "dbm",
+    "digest/bubblebabble",
+    "digest",
+    "digest/md5",
+    "digest/rmd160",
+    "digest/sha1",
+    "digest/sha2",
+    "etc",
+    "fcntl",
+    "fiber",
+    "gdbm",
+    "json",
+    "json/generator",
+    "json/parser",
+    "nkf",
+    "objspace",
+    "pathname",
+    "psych",
+    "racc/cparse",
+    "rbconfig/sizeof",
+    "ripper",
+    "stringio",
+    "strscan",
+    "monitor",
+];
+
 fn configure_cruby(
     toolchain: &Toolchain,
     src_dir: &Path,
@@ -233,6 +265,7 @@ fn configure_cruby(
     prefix: &Path,
     rb_wasm_support: &BuildResult,
     asyncify_stack_size: usize,
+    enabled_extensions: Vec<&str>,
 ) -> anyhow::Result<()> {
     log::info!("configure cruby");
     let wasi_sdk = toolchain.wasi_sdk.as_path().to_string_lossy();
@@ -240,37 +273,6 @@ fn configure_cruby(
 
     std::fs::create_dir_all(build_dir).with_context(|| format!("failed to create build dir"))?;
 
-    let default_enabled_extensions = [
-        "bigdecimal",
-        "cgi/escape",
-        "continuation",
-        "coverage",
-        "date",
-        "dbm",
-        "digest/bubblebabble",
-        "digest",
-        "digest/md5",
-        "digest/rmd160",
-        "digest/sha1",
-        "digest/sha2",
-        "etc",
-        "fcntl",
-        "fiber",
-        "gdbm",
-        "json",
-        "json/generator",
-        "json/parser",
-        "nkf",
-        "objspace",
-        "pathname",
-        "psych",
-        "racc/cparse",
-        "rbconfig/sizeof",
-        "ripper",
-        "stringio",
-        "strscan",
-        "monitor",
-    ];
     let configure = src_dir.join("configure").canonicalize()?;
     let ldflags = [
         format!("--sysroot={}/share/wasi-sysroot", wasi_sdk),
@@ -315,7 +317,7 @@ fn configure_cruby(
     configure_cmd.arg(format!("--with-destdir={}", install_dir.to_string_lossy()));
     configure_cmd.arg(format!(
         "--with-ext={}",
-        default_enabled_extensions.join(",")
+        enabled_extensions.join(",")
     ));
     configure_cmd.arg("XLDFLAGS=-Xlinker --relocatable");
     configure_cmd.arg(format!("LDFLAGS={}", ldflags.join(" ")));
@@ -348,6 +350,7 @@ pub fn build_cruby(
     source: &BuildSource,
     rb_wasm_support: &BuildResult,
     asyncify_stack_size: usize,
+    enabled_extentions: Vec<&str>
 ) -> anyhow::Result<BuildResult> {
     log::info!("build cruby...");
     const GUEST_RUBY_ROOT: &str = "/embd-root/ruby";
@@ -384,6 +387,7 @@ pub fn build_cruby(
         &guest_ruby_root,
         rb_wasm_support,
         asyncify_stack_size,
+        enabled_extentions,
     )
     .with_context(|| format!("configuration failed"))?;
 

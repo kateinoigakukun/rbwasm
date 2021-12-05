@@ -1,7 +1,7 @@
 use anyhow::bail;
 use rbwasm::{
     asyncify_executable, build_cruby, build_rb_wasm_support, builtin_map_paths, link_executable,
-    mkargs, mkfs, toolchain, BuildSource, LinkerInput, MkfsInput, Workspace,
+    mkargs, mkfs, toolchain, BuildSource, LinkerInput, MkfsInput, Workspace, DEFAULT_ENABLED_EXTENSIONS,
 };
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -70,6 +70,9 @@ struct Opt {
     #[structopt(long)]
     no_builtin_files: bool,
 
+    #[structopt(long)]
+    enabled_exts: Option<String>,
+
     #[structopt(long, default_value = "github:kateinoigakukun/ruby@v3_0_2_wasm-alpha1", parse(try_from_str = parse_build_src))]
     cruby_src: BuildSource,
 
@@ -101,12 +104,18 @@ fn main() -> anyhow::Result<()> {
         &opt.rb_wasm_support_src,
         opt.asyncify_stack_size,
     )?;
+    let enabled_extentions = if let Some(exts) = &opt.enabled_exts {
+        exts.split(",").collect::<Vec<_>>()
+    } else {
+        DEFAULT_ENABLED_EXTENSIONS.to_vec()
+    };
     let cruby = build_cruby(
         &workspace,
         &toolchain,
         &opt.cruby_src,
         &rb_wasm_support,
         opt.asyncify_stack_size,
+        enabled_extentions,
     )?;
 
     let installed_ruby_root = cruby.install_dir.join(cruby.prefix.strip_prefix("/")?);
