@@ -73,6 +73,9 @@ struct Opt {
     #[structopt(long)]
     enabled_exts: Option<String>,
 
+    #[structopt(short = "g")]
+    with_debuginfo: bool,
+
     #[structopt(long, default_value = "github:kateinoigakukun/ruby@v3_0_2_wasm-alpha1", parse(try_from_str = parse_build_src))]
     cruby_src: BuildSource,
 
@@ -150,7 +153,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     link_executable(&mut workspace, &toolchain, &cruby, &linker_input, &opt.output)?;
-    asyncify_executable(&toolchain, &opt.output, &opt.output)?;
+    asyncify_executable(&toolchain, opt.with_debuginfo, &opt.output, &opt.output)?;
     Ok(())
 }
 

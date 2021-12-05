@@ -495,6 +495,7 @@ pub fn link_executable(
 
 pub fn asyncify_executable(
     toolchain: &Toolchain,
+    with_debuginfo: bool,
     input: &Path,
     output: &Path,
 ) -> anyhow::Result<()> {
@@ -503,6 +504,9 @@ pub fn asyncify_executable(
     wasm_opt.arg(&input);
     wasm_opt.arg("--asyncify");
     wasm_opt.arg("-O");
+    if with_debuginfo {
+        wasm_opt.arg("-g");
+    }
     wasm_opt.arg("--pass-arg=asyncify-ignore-imports");
     wasm_opt.arg("-o");
     wasm_opt.arg(&output);
