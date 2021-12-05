@@ -20,11 +20,12 @@ use crate::ui::trace_command_exec;
 pub struct Workspace {
     dir: PathBuf,
     save_temps: bool,
+    tempfile_owner: Vec<tempfile::NamedTempFile>,
 }
 
 impl Workspace {
     pub fn create(dir: PathBuf, save_temps: bool) -> std::io::Result<Workspace> {
-        let space = Workspace { dir, save_temps };
+        let space = Workspace { dir, save_temps, tempfile_owner: vec![] };
         std::fs::create_dir_all(space.build_dir())?;
         std::fs::create_dir_all(space.downloads_dir())?;
         std::fs::create_dir_all(space.cache_dir())?;
@@ -76,23 +77,23 @@ impl Workspace {
         Ok(result)
     }
 
-    pub fn with_tempfile<R, F: FnOnce(&mut File, PathBuf) -> R>(
-        &self,
+    pub fn tempfile<F: FnOnce(&mut tempfile::NamedTempFile) -> anyhow::Result<()>>(
+        &mut self,
         prefix: &str,
         inner: F,
-    ) -> anyhow::Result<R> {
+    ) -> anyhow::Result<PathBuf> {
         let mut tmpfile = tempfile::Builder::new()
             .prefix(prefix)
             .tempfile_in(self.temporary_dir())?;
         let tmpfile_path = tmpfile.path().to_path_buf();
-
-        let result = inner(tmpfile.as_file_mut(), tmpfile_path);
-
+        inner(&mut tmpfile)?;
         if self.save_temps {
             tmpfile.keep()?;
+        } else {
+            self.tempfile_owner.push(tmpfile);
         }
 
-        Ok(result)
+        Ok(tmpfile_path)
     }
 }
 
@@ -430,12 +431,12 @@ pub fn build_cruby(
 
 pub struct LinkerInput<'a> {
     pub stack_size: usize,
-    pub fs_object: Option<&'a [u8]>,
+    pub raw_objects: Vec<(String, Vec<u8>)>,
     pub extra_args: &'a [String],
 }
 
 pub fn link_executable(
-    workspace: &Workspace,
+    workspace: &mut Workspace,
     toolchain: &Toolchain,
     cruby: &BuildResult,
     input: &LinkerInput,
@@ -456,32 +457,31 @@ pub fn link_executable(
     link.arg(output);
     link.args(input.extra_args);
 
-    fn link_inner(mut link: Command, workspace: &Workspace) -> anyhow::Result<ExitStatus> {
-        workspace.with_tempfile("libwasi_vfs.a", |libvfs, libvfs_path| {
+    fn link_inner(mut link: Command, workspace: &mut Workspace) -> anyhow::Result<ExitStatus> {
+        let libvfs_path = workspace.tempfile("libwasi_vfs.a", |libvfs| {
             libvfs.write_all(std::include_bytes!(std::concat!(
                 std::env!("OUT_DIR"),
                 "/wasi-vfs-target/wasm32-unknown-unknown/release/libwasi_vfs.a"
             )))?;
+            Ok(())
+        })?;
 
-            link.arg(libvfs_path);
-            trace_command_exec(&link, "linker", None);
-            let status = link
-                .status()
-                .with_context(|| format!("failed to spawn linker"))?;
-            Ok(status)
-        })?
+        link.arg(libvfs_path);
+        trace_command_exec(&link, "linker", None);
+        let status = link
+            .status()
+            .with_context(|| format!("failed to spawn linker"))?;
+        Ok(status)
     }
 
-    let status = if let Some(bytes) = input.fs_object {
-        let status = workspace.with_tempfile("fs.o", |fs_obj, fs_obj_path| {
-            fs_obj.write_all(&bytes)?;
-            link.arg(fs_obj_path);
-            link_inner(link, &workspace)
+    for (prefix, bytes) in &input.raw_objects {
+        let objfile_path = workspace.tempfile(&prefix, |objfile| {
+            objfile.write_all(bytes)?;
+            Ok(())
         })?;
-        status?
-    } else {
-        link_inner(link, &workspace)?
-    };
+        link.arg(objfile_path);
+    }
+    let status = link_inner(link, workspace)?;
 
     if !status.success() {
         bail!("link failed")
@@ -603,6 +603,32 @@ pub fn mkfs(
     }
     let clang = toolchain.wasi_sdk.join("bin/clang");
     let object = wasi_vfs_mkfs::generate_obj(&fs_c_src, &clang.to_string_lossy())?;
+    Ok(object)
+}
+
+pub fn mkargs(
+    workspace: &Workspace,
+    toolchain: &Toolchain,
+    args: &[String],
+) -> anyhow::Result<Vec<u8>> {
+    ui_info!("generating preset arguments data");
+    let preset_args_c_src = wasi_preset_args::generate_c_source("ruby.wasm", args)?;
+    if is_debugging() {
+        let preset_args_c = workspace.temporary_dir().join("preset-args.c");
+        ui_info!(
+            "exporting preset args intermediate source to {:?}",
+            &preset_args_c
+        );
+        if let Err(e) = std::fs::write(&preset_args_c, &preset_args_c_src) {
+            log::warn!(
+                "failed to export preset args intermediate source into {:?}: {}",
+                relpath_for_display(&preset_args_c),
+                e
+            );
+        }
+    }
+    let clang = toolchain.wasi_sdk.join("bin/clang");
+    let object = wasi_preset_args::generate_obj(&preset_args_c_src, &clang.to_string_lossy())?;
     Ok(object)
 }
 

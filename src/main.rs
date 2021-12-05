@@ -1,7 +1,7 @@
 use anyhow::bail;
 use rbwasm::{
     asyncify_executable, build_cruby, build_rb_wasm_support, builtin_map_paths, link_executable,
-    mkfs, toolchain, BuildSource, LinkerInput, MkfsInput, Workspace,
+    mkargs, mkfs, toolchain, BuildSource, LinkerInput, MkfsInput, Workspace,
 };
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -75,6 +75,9 @@ struct Opt {
 
     #[structopt(long = "Xlinker", number_of_values = 1)]
     extra_linker_args: Vec<String>,
+
+    #[structopt(name = "PRESET_ARGS", last = true)]
+    preset_args: Vec<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -87,7 +90,7 @@ fn main() -> anyhow::Result<()> {
         log::debug!("workspace dir doesn't exist. create {:?}", workspace_dir);
         std::fs::create_dir_all(&workspace_dir)?;
     }
-    let workspace = Workspace::create(workspace_dir.canonicalize()?, opt.save_temps)?;
+    let mut workspace = Workspace::create(workspace_dir.canonicalize()?, opt.save_temps)?;
     let toolchain = toolchain::install_build_toolchain(&workspace)?;
     let rb_wasm_support = build_rb_wasm_support(
         &workspace,
@@ -107,23 +110,30 @@ fn main() -> anyhow::Result<()> {
     let mut map_paths = builtin_map_paths(&installed_ruby_root)?;
     map_paths.extend(opt.map_dirs);
 
-    let fs_object = if !map_paths.is_empty() {
+    let mut raw_objects = vec![];
+
+    if !map_paths.is_empty() {
         let input = MkfsInput {
             map_paths,
             host_ruby_root: &installed_ruby_root,
             guest_ruby_root: &cruby.prefix.strip_prefix("/embd-root").unwrap(),
         };
-        Some(mkfs(&workspace, &toolchain, input)?)
-    } else {
-        None
-    };
+        let bytes = mkfs(&workspace, &toolchain, input)?;
+        raw_objects.push(("fs.o".to_string(), bytes));
+    }
+
+    if !opt.preset_args.is_empty() {
+        let bytes = mkargs(&workspace, &toolchain, &opt.preset_args)?;
+        raw_objects.push(("preset_args.o".to_string(), bytes));
+    }
+
     let linker_input = LinkerInput {
         stack_size: opt.stack_size,
-        fs_object: fs_object.as_deref(),
+        raw_objects: raw_objects,
         extra_args: &opt.extra_linker_args,
     };
 
-    link_executable(&workspace, &toolchain, &cruby, &linker_input, &opt.output)?;
+    link_executable(&mut workspace, &toolchain, &cruby, &linker_input, &opt.output)?;
     asyncify_executable(&toolchain, &opt.output, &opt.output)?;
     Ok(())
 }

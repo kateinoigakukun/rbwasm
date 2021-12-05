@@ -681,6 +681,7 @@ dependencies = [
  "siphasher",
  "structopt",
  "tempfile",
+ "wasi-preset-args",
  "wasi-vfs-mkfs",
  "which",
 ]
@@ -1087,6 +1088,11 @@ name = "wasi"
 version = "0.10.0+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a143597ca7c7793eff794def352d41792a93c481eb1042423ff7ff72ba2c31f"
+
+[[package]]
+name = "wasi-preset-args"
+version = "0.1.0"
+source = "git+https://github.com/kateinoigakukun/wasi-preset-args.git?rev=eb78bb8fb27cbcea84afff007f0657904d4aa156#eb78bb8fb27cbcea84afff007f0657904d4aa156"
 
 [[package]]
 name = "wasi-vfs-mkfs"

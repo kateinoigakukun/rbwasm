@@ -15,6 +15,7 @@ siphasher = "0.3"
 hex = "0.4"
 num_cpus = "1.13"
 wasi-vfs-mkfs = { path = "wasi-vfs/crates/wasi-vfs-mkfs" }
+wasi-preset-args = { git = "https://github.com/kateinoigakukun/wasi-preset-args.git", rev = "eb78bb8fb27cbcea84afff007f0657904d4aa156" }
 tempfile = "3.2"
 ansi_term = "0.12"
 regex = "1"
