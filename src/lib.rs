@@ -25,7 +25,11 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn create(dir: PathBuf, save_temps: bool) -> std::io::Result<Workspace> {
-        let space = Workspace { dir, save_temps, tempfile_owner: vec![] };
+        let space = Workspace {
+            dir,
+            save_temps,
+            tempfile_owner: vec![],
+        };
         std::fs::create_dir_all(space.build_dir())?;
         std::fs::create_dir_all(space.downloads_dir())?;
         std::fs::create_dir_all(space.cache_dir())?;
@@ -95,6 +99,17 @@ impl Workspace {
 
         Ok(tmpfile_path)
     }
+
+    fn hashed_dirs<T: Hash>(&self, source: T, name: &str) -> (PathBuf, PathBuf) {
+        let mut hasher = SipHasher13::new();
+        source.hash(&mut hasher);
+        let result = hasher.finish();
+        let hex = hex::encode(result.to_le_bytes());
+        let hashed = format!("{}-{}", name, hex);
+        let build_dir = self.build_dir().join(&hashed);
+        let install_dir = self.cache_dir().join(&hashed);
+        (build_dir, install_dir)
+    }
 }
 
 #[derive(Debug, Hash)]
@@ -107,16 +122,6 @@ pub enum BuildSource {
     Dir {
         path: PathBuf,
     },
-}
-
-impl BuildSource {
-    fn hashed_srcname(&self, name: &str) -> String {
-        let mut hasher = SipHasher13::new();
-        self.hash(&mut hasher);
-        let result = hasher.finish();
-        let hex = hex::encode(result.to_le_bytes());
-        format!("{}-{}", name, hex)
-    }
 }
 
 /// Retrieve a build source from BuildSource and returns source directory
@@ -165,9 +170,7 @@ pub fn build_rb_wasm_support(
     asyncify_stack_size: usize,
 ) -> anyhow::Result<BuildResult> {
     log::info!("build rb-wasm-support...");
-    let hashed_name = source.hashed_srcname("rb-wasm-support");
-    let build_dir = workspace.build_dir().join(&hashed_name);
-    let install_dir = workspace.cache_dir().join(&hashed_name);
+    let (build_dir, install_dir) = workspace.hashed_dirs(source, "rb-wasm-support");
     if install_dir.exists() {
         log::info!("rb-wasm-support build cache found. skip building again");
         return Ok(BuildResult {
@@ -286,7 +289,7 @@ fn configure_cruby(
         String::from("-Xlinker"),
         String::from("--features=mutable-globals"),
     ];
-    let cflags = [
+    let mut cflags = vec![
         format!("--sysroot={}/share/wasi-sysroot", wasi_sdk),
         format!("-I{}/include", rb_wasm_support),
         String::from("-D_WASI_EMULATED_SIGNAL"),
@@ -299,6 +302,9 @@ fn configure_cruby(
             asyncify_stack_size
         ),
     ];
+    if let Ok(total_size) = std::env::var("TRANSIENT_HEAP_TOTAL_SIZE") {
+        cflags.push(format!("-DTRANSIENT_HEAP_TOTAL_SIZE={}", total_size));
+    }
     let mut configure_cmd = Command::new(configure.as_path());
     configure_cmd.current_dir(&build_dir);
 
@@ -315,10 +321,7 @@ fn configure_cruby(
     ]);
     configure_cmd.arg(format!("--prefix={}", prefix.to_string_lossy()));
     configure_cmd.arg(format!("--with-destdir={}", install_dir.to_string_lossy()));
-    configure_cmd.arg(format!(
-        "--with-ext={}",
-        enabled_extensions.join(",")
-    ));
+    configure_cmd.arg(format!("--with-ext={}", enabled_extensions.join(",")));
     configure_cmd.arg("XLDFLAGS=-Xlinker --relocatable");
     configure_cmd.arg(format!("LDFLAGS={}", ldflags.join(" ")));
     configure_cmd.arg(format!("CFLAGS={}", cflags.join(" ")));
@@ -350,14 +353,12 @@ pub fn build_cruby(
     source: &BuildSource,
     rb_wasm_support: &BuildResult,
     asyncify_stack_size: usize,
-    enabled_extentions: Vec<&str>
+    enabled_extentions: Vec<&str>,
 ) -> anyhow::Result<BuildResult> {
     log::info!("build cruby...");
     const GUEST_RUBY_ROOT: &str = "/embd-root/ruby";
     let guest_ruby_root: PathBuf = GUEST_RUBY_ROOT.into();
-    let hashed_name = source.hashed_srcname("ruby");
-    let build_dir = workspace.build_dir().join(&hashed_name);
-    let install_dir = workspace.cache_dir().join(&hashed_name);
+    let (build_dir, install_dir) = workspace.hashed_dirs(source, "ruby");
     if install_dir.exists() && rb_wasm_support.cached {
         log::info!("cruby build cache found. skip building again");
         return Ok(BuildResult {

@@ -1,7 +1,8 @@
 use anyhow::bail;
 use rbwasm::{
     asyncify_executable, build_cruby, build_rb_wasm_support, builtin_map_paths, link_executable,
-    mkargs, mkfs, toolchain, BuildSource, LinkerInput, MkfsInput, Workspace, DEFAULT_ENABLED_EXTENSIONS,
+    mkargs, mkfs, toolchain, BuildSource, LinkerInput, MkfsInput, Workspace,
+    DEFAULT_ENABLED_EXTENSIONS,
 };
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -152,7 +153,13 @@ fn main() -> anyhow::Result<()> {
         extra_args: &opt.extra_linker_args,
     };
 
-    link_executable(&mut workspace, &toolchain, &cruby, &linker_input, &opt.output)?;
+    link_executable(
+        &mut workspace,
+        &toolchain,
+        &cruby,
+        &linker_input,
+        &opt.output,
+    )?;
     asyncify_executable(&toolchain, opt.with_debuginfo, &opt.output, &opt.output)?;
     Ok(())
 }
