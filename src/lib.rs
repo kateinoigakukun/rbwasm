@@ -658,6 +658,17 @@ pub fn mkargs(
     Ok(object)
 }
 
+pub fn run_build_hook(build_hook: &str, host_ruby_root: &Path) -> anyhow::Result<()> {
+    ui_info!("running build-hook {}", build_hook);
+    let mut hook = Command::new(&build_hook)
+        .env("RUBY_ROOT", host_ruby_root)
+        .spawn()
+        .with_context(|| format!("failed to spawn build hook: {}", build_hook))?;
+    hook.try_wait()
+        .with_context(|| format!("error while build hook"))?;
+    Ok(())
+}
+
 fn extract_tarball<R: std::io::Read>(src: &mut R, dest: &Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(dest)?;
     let mut tar = Command::new("tar")

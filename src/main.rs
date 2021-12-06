@@ -1,7 +1,7 @@
 use anyhow::bail;
 use rbwasm::{
     asyncify_executable, build_cruby, build_rb_wasm_support, builtin_map_paths, link_executable,
-    mkargs, mkfs, toolchain, BuildSource, CRubyBuildInput, LinkerInput, MkfsInput,
+    mkargs, mkfs, run_build_hook, toolchain, BuildSource, CRubyBuildInput, LinkerInput, MkfsInput,
     RbWasmSupportBuildInput, Workspace, DEFAULT_ENABLED_EXTENSIONS,
 };
 use std::path::PathBuf;
@@ -83,6 +83,9 @@ struct Opt {
     #[structopt(long, default_value = "github:kateinoigakukun/rb-wasm-support@0.4.0", parse(try_from_str = parse_build_src))]
     rb_wasm_support_src: BuildSource,
 
+    #[structopt(long)]
+    build_hook: Option<String>,
+
     #[structopt(long = "Xcc", number_of_values = 1)]
     extra_cc_args: Vec<String>,
 
@@ -132,6 +135,11 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     let installed_ruby_root = cruby.install_dir.join(cruby.prefix.strip_prefix("/")?);
+
+    if let Some(build_hook) = opt.build_hook {
+        run_build_hook(&build_hook, &installed_ruby_root)?;
+    }
+
     let mut map_paths = if !opt.no_builtin_files {
         builtin_map_paths(&installed_ruby_root)?
     } else {
