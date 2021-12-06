@@ -30,8 +30,8 @@ fn test_build_cruby_cached() {
         prefix: "/prefix".into(),
     };
 
-    let result = build_cruby(&workspace, &toolchain, &build_source, &rb_wasm_support, 0).unwrap();
+    let result = build_cruby(&workspace, &toolchain, &build_source, &rb_wasm_support, 0, vec![]).unwrap();
     assert_eq!(result.cached, false);
-    let result = build_cruby(&workspace, &toolchain, &build_source, &rb_wasm_support, 0).unwrap();
+    let result = build_cruby(&workspace, &toolchain, &build_source, &rb_wasm_support, 0, vec![]).unwrap();
     assert_eq!(result.cached, true);
 }

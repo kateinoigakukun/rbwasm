@@ -28,7 +28,7 @@ fn test_build_cruby() {
         asyncify_stack_size,
     )
     .expect("failed build rb-wasm-support");
-    build_cruby(&workspace, &toolchain, &ruby_source, &rb_wasm_support, 0)
+    build_cruby(&workspace, &toolchain, &ruby_source, &rb_wasm_support, 0, vec![])
         .expect("failed build cruby");
     drop(space)
 }
