@@ -33,6 +33,7 @@ fn test_build_cruby_cached() {
         source: build_source,
         asyncify_stack_size: 0,
         enabled_extentions: vec![],
+        extra_cc_args: &[],
     };
 
     let result = build_cruby(&workspace, &toolchain, &input, &rb_wasm_support).unwrap();

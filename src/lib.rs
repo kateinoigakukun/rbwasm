@@ -170,9 +170,10 @@ fn install_build_src<'a>(source: &'a BuildSource, build_dir: &'a Path) -> anyhow
 }
 
 #[derive(Hash)]
-pub struct RbWasmSupportBuildInput {
+pub struct RbWasmSupportBuildInput<'a> {
     pub source: BuildSource,
     pub asyncify_stack_size: usize,
+    pub extra_cc_args: &'a [String],
 }
 
 pub fn build_rb_wasm_support(
@@ -192,6 +193,11 @@ pub fn build_rb_wasm_support(
     }
     let src_dir = install_build_src(&input.source, &build_dir)?;
     let mut make = Command::new("make");
+    let mut cflags = vec![format!(
+        "-DRB_WASM_SUPPORT_FRAME_BUFFER_SIZE={}",
+        input.asyncify_stack_size
+    )];
+    cflags.extend(input.extra_cc_args.to_vec());
     make.arg("-C")
         .arg(src_dir)
         .arg("install")
@@ -215,10 +221,7 @@ pub fn build_rb_wasm_support(
                 .join("share/wasi-sysroot")
                 .to_string_lossy()
         ))
-        .arg(format!(
-            "OPTFLAGS=-DRB_WASM_SUPPORT_FRAME_BUFFER_SIZE={}",
-            input.asyncify_stack_size
-        ));
+        .arg(format!("OPTFLAGS={}", cflags.join(" ")));
     if !is_debugging() {
         make.stdout(Stdio::null()).stderr(Stdio::null());
     }
@@ -280,6 +283,7 @@ fn configure_cruby(
     rb_wasm_support: &BuildResult,
     asyncify_stack_size: usize,
     enabled_extensions: Vec<&str>,
+    extra_cc_args: &[String],
 ) -> anyhow::Result<()> {
     log::info!("configure cruby");
     let wasi_sdk = toolchain.wasi_sdk.as_path().to_string_lossy();
@@ -313,6 +317,7 @@ fn configure_cruby(
             asyncify_stack_size
         ),
     ];
+    cflags.extend(extra_cc_args.to_vec());
     if let Ok(total_size) = std::env::var("TRANSIENT_HEAP_TOTAL_SIZE") {
         cflags.push(format!("-DTRANSIENT_HEAP_TOTAL_SIZE={}", total_size));
     }
@@ -355,6 +360,7 @@ fn configure_cruby(
 pub struct CRubyBuildInput<'a> {
     pub source: BuildSource,
     pub asyncify_stack_size: usize,
+    pub extra_cc_args: &'a [String],
     pub enabled_extentions: Vec<&'a str>,
 }
 
@@ -399,6 +405,7 @@ pub fn build_cruby(
         rb_wasm_support,
         input.asyncify_stack_size,
         input.enabled_extentions.clone(),
+        input.extra_cc_args,
     )
     .with_context(|| format!("configuration failed"))?;
 

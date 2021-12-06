@@ -27,6 +27,7 @@ fn test_build_cruby() {
         &RbWasmSupportBuildInput {
             source: rb_wasm_support_source,
             asyncify_stack_size,
+            extra_cc_args: &[],
         },
     )
     .expect("failed build rb-wasm-support");
@@ -37,6 +38,7 @@ fn test_build_cruby() {
             source: ruby_source,
             asyncify_stack_size: 0,
             enabled_extentions: vec![],
+            extra_cc_args: &[],
         },
         &rb_wasm_support,
     )
