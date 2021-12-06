@@ -112,6 +112,12 @@ impl Workspace {
     }
 }
 
+pub struct BuildResult {
+    pub install_dir: PathBuf,
+    pub cached: bool,
+    pub prefix: PathBuf,
+}
+
 #[derive(Debug, Hash)]
 pub enum BuildSource {
     GitHub {
@@ -163,14 +169,19 @@ fn install_build_src<'a>(source: &'a BuildSource, build_dir: &'a Path) -> anyhow
     }
 }
 
+#[derive(Hash)]
+pub struct RbWasmSupportBuildInput {
+    pub source: BuildSource,
+    pub asyncify_stack_size: usize,
+}
+
 pub fn build_rb_wasm_support(
     workspace: &Workspace,
     toolchain: &Toolchain,
-    source: &BuildSource,
-    asyncify_stack_size: usize,
+    input: &RbWasmSupportBuildInput,
 ) -> anyhow::Result<BuildResult> {
     log::info!("build rb-wasm-support...");
-    let (build_dir, install_dir) = workspace.hashed_dirs(source, "rb-wasm-support");
+    let (build_dir, install_dir) = workspace.hashed_dirs(input, "rb-wasm-support");
     if install_dir.exists() {
         log::info!("rb-wasm-support build cache found. skip building again");
         return Ok(BuildResult {
@@ -179,7 +190,7 @@ pub fn build_rb_wasm_support(
             prefix: "/".into(),
         });
     }
-    let src_dir = install_build_src(source, &build_dir)?;
+    let src_dir = install_build_src(&input.source, &build_dir)?;
     let mut make = Command::new("make");
     make.arg("-C")
         .arg(src_dir)
@@ -206,7 +217,7 @@ pub fn build_rb_wasm_support(
         ))
         .arg(format!(
             "OPTFLAGS=-DRB_WASM_SUPPORT_FRAME_BUFFER_SIZE={}",
-            asyncify_stack_size
+            input.asyncify_stack_size
         ));
     if !is_debugging() {
         make.stdout(Stdio::null()).stderr(Stdio::null());
@@ -340,25 +351,24 @@ fn configure_cruby(
     Ok(())
 }
 
-pub struct BuildResult {
-    pub install_dir: PathBuf,
-    pub cached: bool,
-    pub prefix: PathBuf,
+#[derive(Hash)]
+pub struct CRubyBuildInput<'a> {
+    pub source: BuildSource,
+    pub asyncify_stack_size: usize,
+    pub enabled_extentions: Vec<&'a str>,
 }
 
 /// Build CRuby from a given source and returns installed path
 pub fn build_cruby(
     workspace: &Workspace,
     toolchain: &Toolchain,
-    source: &BuildSource,
+    input: &CRubyBuildInput,
     rb_wasm_support: &BuildResult,
-    asyncify_stack_size: usize,
-    enabled_extentions: Vec<&str>,
 ) -> anyhow::Result<BuildResult> {
     log::info!("build cruby...");
     const GUEST_RUBY_ROOT: &str = "/embd-root/ruby";
     let guest_ruby_root: PathBuf = GUEST_RUBY_ROOT.into();
-    let (build_dir, install_dir) = workspace.hashed_dirs(source, "ruby");
+    let (build_dir, install_dir) = workspace.hashed_dirs(input, "ruby");
     if install_dir.exists() && rb_wasm_support.cached {
         log::info!("cruby build cache found. skip building again");
         return Ok(BuildResult {
@@ -368,7 +378,7 @@ pub fn build_cruby(
         });
     }
 
-    let src_dir = install_build_src(source, &build_dir)?;
+    let src_dir = install_build_src(&input.source, &build_dir)?;
     let autogen_sh = src_dir.join("autogen.sh");
     let mut autogen_sh = Command::new(autogen_sh.as_path());
     trace_command_exec(&autogen_sh, "./autogen.sh", None);
@@ -387,8 +397,8 @@ pub fn build_cruby(
         &install_dir,
         &guest_ruby_root,
         rb_wasm_support,
-        asyncify_stack_size,
-        enabled_extentions,
+        input.asyncify_stack_size,
+        input.enabled_extentions.clone(),
     )
     .with_context(|| format!("configuration failed"))?;
 
