@@ -1,8 +1,8 @@
 use anyhow::bail;
 use rbwasm::{
-    asyncify_executable, build_cruby, build_rb_wasm_support, builtin_map_paths, link_executable,
-    mkargs, mkfs, run_build_hook, toolchain, BuildSource, CRubyBuildInput, LinkerInput, MkfsInput,
-    RbWasmSupportBuildInput, Workspace, DEFAULT_ENABLED_EXTENSIONS,
+    asyncify_executable, build_cruby, builtin_map_paths, link_executable, mkargs, mkfs,
+    run_build_hook, toolchain, BuildSource, CRubyBuildInput, LinkerInput, MkfsInput, Workspace,
+    DEFAULT_ENABLED_EXTENSIONS,
 };
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -77,11 +77,8 @@ struct Opt {
     #[structopt(short = "g")]
     with_debuginfo: bool,
 
-    #[structopt(long, default_value = "github:kateinoigakukun/ruby@v3_0_2_wasm-alpha1", parse(try_from_str = parse_build_src))]
+    #[structopt(long, default_value = "github:kateinoigakukun/ruby@9bcc194dc3c12f017a41b6287f85b58f2c487bf8", parse(try_from_str = parse_build_src))]
     cruby_src: BuildSource,
-
-    #[structopt(long, default_value = "github:kateinoigakukun/rb-wasm-support@0.4.0", parse(try_from_str = parse_build_src))]
-    rb_wasm_support_src: BuildSource,
 
     #[structopt(long)]
     build_hook: Option<String>,
@@ -108,15 +105,6 @@ fn main() -> anyhow::Result<()> {
     }
     let mut workspace = Workspace::create(workspace_dir.canonicalize()?, opt.save_temps)?;
     let toolchain = toolchain::install_build_toolchain(&workspace)?;
-    let rb_wasm_support = build_rb_wasm_support(
-        &workspace,
-        &toolchain,
-        &RbWasmSupportBuildInput {
-            source: opt.rb_wasm_support_src,
-            asyncify_stack_size: opt.asyncify_stack_size,
-            extra_cc_args: &opt.extra_cc_args,
-        },
-    )?;
     let enabled_extentions = if let Some(exts) = &opt.enabled_exts {
         exts.split(",").collect::<Vec<_>>()
     } else {
@@ -131,7 +119,6 @@ fn main() -> anyhow::Result<()> {
             extra_cc_args: &opt.extra_cc_args,
             enabled_extentions,
         },
-        &rb_wasm_support,
     )?;
 
     let installed_ruby_root = cruby.install_dir.join(cruby.prefix.strip_prefix("/")?);
@@ -166,7 +153,7 @@ fn main() -> anyhow::Result<()> {
 
     let linker_input = LinkerInput {
         stack_size: opt.stack_size,
-        raw_objects: raw_objects,
+        raw_objects,
         extra_args: &opt.extra_linker_args,
     };
 

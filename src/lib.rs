@@ -169,79 +169,6 @@ fn install_build_src<'a>(source: &'a BuildSource, build_dir: &'a Path) -> anyhow
     }
 }
 
-#[derive(Hash)]
-pub struct RbWasmSupportBuildInput<'a> {
-    pub source: BuildSource,
-    pub asyncify_stack_size: usize,
-    pub extra_cc_args: &'a [String],
-}
-
-pub fn build_rb_wasm_support(
-    workspace: &Workspace,
-    toolchain: &Toolchain,
-    input: &RbWasmSupportBuildInput,
-) -> anyhow::Result<BuildResult> {
-    log::info!("build rb-wasm-support...");
-    let (build_dir, install_dir) = workspace.hashed_dirs(input, "rb-wasm-support");
-    if install_dir.exists() {
-        log::info!("rb-wasm-support build cache found. skip building again");
-        return Ok(BuildResult {
-            install_dir,
-            cached: true,
-            prefix: "/".into(),
-        });
-    }
-    let src_dir = install_build_src(&input.source, &build_dir)?;
-    let mut make = Command::new("make");
-    let mut cflags = vec![format!(
-        "-DRB_WASM_SUPPORT_FRAME_BUFFER_SIZE={}",
-        input.asyncify_stack_size
-    )];
-    cflags.extend(input.extra_cc_args.to_vec());
-    make.arg("-C")
-        .arg(src_dir)
-        .arg("install")
-        .arg(format!("PREFIX={}", install_dir.to_string_lossy()))
-        .arg(format!(
-            "MC={} -c",
-            toolchain.wasi_sdk.join("bin/clang").to_string_lossy()
-        ))
-        .arg(format!(
-            "CC={}",
-            toolchain.wasi_sdk.join("bin/clang").to_string_lossy()
-        ))
-        .arg(format!(
-            "AR={}",
-            toolchain.wasi_sdk.join("bin/llvm-ar").to_string_lossy()
-        ))
-        .arg(format!(
-            "SYSROOT={}",
-            toolchain
-                .wasi_sdk
-                .join("share/wasi-sysroot")
-                .to_string_lossy()
-        ))
-        .arg(format!("OPTFLAGS={}", cflags.join(" ")));
-    if !is_debugging() {
-        make.stdout(Stdio::null()).stderr(Stdio::null());
-    }
-
-    trace_command_exec(&make, "make install", None);
-
-    let status = make
-        .status()
-        .with_context(|| format!("failed to spawn make for rb-wasm-support"))?;
-    if !status.success() {
-        bail!("make of rb-wasm-support failed")
-    }
-
-    Ok(BuildResult {
-        install_dir,
-        cached: false,
-        prefix: "/".into(),
-    })
-}
-
 pub const DEFAULT_ENABLED_EXTENSIONS: [&str; 29] = [
     "bigdecimal",
     "cgi/escape",
@@ -280,14 +207,12 @@ fn configure_cruby(
     build_dir: &Path,
     install_dir: &Path,
     prefix: &Path,
-    rb_wasm_support: &BuildResult,
     asyncify_stack_size: usize,
     enabled_extensions: Vec<&str>,
     extra_cc_args: &[String],
 ) -> anyhow::Result<()> {
     log::info!("configure cruby");
     let wasi_sdk = toolchain.wasi_sdk.as_path().to_string_lossy();
-    let rb_wasm_support = rb_wasm_support.install_dir.as_path().to_string_lossy();
 
     std::fs::create_dir_all(build_dir).with_context(|| format!("failed to create build dir"))?;
 
@@ -295,18 +220,15 @@ fn configure_cruby(
     let ldflags = [
         format!("--sysroot={}/share/wasi-sysroot", wasi_sdk),
         format!("-L{}/share/wasi-sysroot/lib/wasm32-wasi", wasi_sdk),
-        format!("-L{}/lib", rb_wasm_support),
         String::from("-lwasi-emulated-mman"),
         String::from("-lwasi-emulated-signal"),
         String::from("-lwasi-emulated-getpid"),
         String::from("-lwasi-emulated-process-clocks"),
-        String::from("-lrb_wasm_support"),
         String::from("-Xlinker"),
         String::from("--features=mutable-globals"),
     ];
     let mut cflags = vec![
         format!("--sysroot={}/share/wasi-sysroot", wasi_sdk),
-        format!("-I{}/include", rb_wasm_support),
         String::from("-D_WASI_EMULATED_SIGNAL"),
         String::from("-D_WASI_EMULATED_MMAN"),
         String::from("-D_WASI_EMULATED_GETPID"),
@@ -369,13 +291,12 @@ pub fn build_cruby(
     workspace: &Workspace,
     toolchain: &Toolchain,
     input: &CRubyBuildInput,
-    rb_wasm_support: &BuildResult,
 ) -> anyhow::Result<BuildResult> {
     log::info!("build cruby...");
     const GUEST_RUBY_ROOT: &str = "/embd-root/ruby";
     let guest_ruby_root: PathBuf = GUEST_RUBY_ROOT.into();
     let (build_dir, install_dir) = workspace.hashed_dirs(input, "ruby");
-    if install_dir.exists() && rb_wasm_support.cached {
+    if install_dir.exists() {
         log::info!("cruby build cache found. skip building again");
         return Ok(BuildResult {
             install_dir,
@@ -402,7 +323,6 @@ pub fn build_cruby(
         &build_dir,
         &install_dir,
         &guest_ruby_root,
-        rb_wasm_support,
         input.asyncify_stack_size,
         input.enabled_extentions.clone(),
         input.extra_cc_args,

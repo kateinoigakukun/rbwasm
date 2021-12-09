@@ -13,24 +13,8 @@ fn test_build_cruby() {
     let ruby_source = BuildSource::GitHub {
         owner: String::from("kateinoigakukun"),
         repo: String::from("ruby"),
-        git_ref: String::from("834e12525261d756da85b9b880dabe8407084902"),
+        git_ref: String::from("9bcc194dc3c12f017a41b6287f85b58f2c487bf8"),
     };
-    let asyncify_stack_size = 1024;
-    let rb_wasm_support_source = BuildSource::GitHub {
-        owner: String::from("kateinoigakukun"),
-        repo: String::from("rb-wasm-support"),
-        git_ref: String::from("0.4.0"),
-    };
-    let rb_wasm_support = build_rb_wasm_support(
-        &workspace,
-        &toolchain,
-        &RbWasmSupportBuildInput {
-            source: rb_wasm_support_source,
-            asyncify_stack_size,
-            extra_cc_args: &[],
-        },
-    )
-    .expect("failed build rb-wasm-support");
     build_cruby(
         &workspace,
         &toolchain,
@@ -40,7 +24,6 @@ fn test_build_cruby() {
             enabled_extentions: vec![],
             extra_cc_args: &[],
         },
-        &rb_wasm_support,
     )
     .expect("failed build cruby");
     drop(space)
